@@ -612,6 +612,8 @@ Great Expectations or pandera schemas run in CI and after every ingestion.
 
 ## 24. Architecture and tech stack
 
+> **Superseded:** §21 (storage engine), §24 and §25 are replaced by [`architecture/HLD.md`](architecture/HLD.md) and the LLDs. The final stack is PostgreSQL + TimescaleDB, Redis, FastAPI microservices, a Python venv, and React. The text below is kept only for history.
+
 ```text
  AMFI ─┐   SEBI/AMC ─┐   NSE/BSE TRI ─┐   RBI ─┐   MFAPI ─┐
        └──────────────┴───────────────┴────────┴──────────┘
