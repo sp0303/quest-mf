@@ -2,6 +2,12 @@
 
 These rules are **binding**. If a task conflicts with them, stop and ask the user. Do not silently deviate. When a rule must change, change this file in the same PR and say so in the PR description.
 
+> **Architecture Amendment (Approved 2026-09-17):**
+> - **Unified Monolith**: Consolidate backend microservices into a single modular FastAPI application (`backend/app/main.py`) on port 8000.
+> - **Zero-Docker Host Execution**: No local Docker daemons or containers required.
+> - **Direct Cloud Data Tier**: Cloud PostgreSQL and Redis connect via environment variables (`QMF_PG_DSN`, `QMF_REDIS_URL`).
+> - **Pure Quant Core**: Pure quant finance library `questmf_quant` preserved with 100% adherence to rules Q1–Q16.
+
 ---
 
 ## 0. Read before you write

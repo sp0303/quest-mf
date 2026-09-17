@@ -3,6 +3,9 @@ raw_ingest/
 .env
 __pycache__/
 *.pyc
+*.egg-info/
+.pytest_cache/
+*.tsbuildinfo
 .venv/
 node_modules/
 dist/
