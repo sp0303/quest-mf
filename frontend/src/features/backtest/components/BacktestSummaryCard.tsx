@@ -27,7 +27,7 @@ export const BacktestSummaryCard: React.FC<BacktestSummaryCardProps> = ({ summar
       <Card className="p-4 bg-paper border-hairline rounded-3xl">
         <div className="text-xs text-mid-gray">Sharpe Ratio</div>
         <div className="text-lg font-semibold mt-1 text-ink">
-          {summary.sharpe_ratio.toFixed(2)}
+          {summary.sharpe_ratio == null ? "—" : summary.sharpe_ratio.toFixed(2)}
         </div>
       </Card>
       <Card className="p-4 bg-paper border-hairline rounded-3xl">
@@ -40,7 +40,7 @@ export const BacktestSummaryCard: React.FC<BacktestSummaryCardProps> = ({ summar
       <Card className="p-4 bg-paper border-hairline rounded-3xl">
         <div className="text-xs text-mid-gray">Mean Rank IC</div>
         <div className="text-lg font-semibold mt-1 text-ink">
-          {summary.rank_ic_mean.toFixed(3)}
+          {summary.rank_ic_mean == null ? "—" : summary.rank_ic_mean.toFixed(3)}
         </div>
       </Card>
     </div>
