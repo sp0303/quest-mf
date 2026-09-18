@@ -11,8 +11,10 @@ import pytest
 
 from app.config import settings
 from workers.ingestion_worker import (
+    AsyncRateLimiter,
     parse_amfi_feed,
     reconcile_amfi_vs_mfapi,
+    store_raw_payload,
 )
 
 SAMPLE_AMFI_SNIPPET = """Open Ended Schemes (Equity Scheme - Small Cap Fund)
@@ -84,3 +86,66 @@ async def test_ops_ingest_log_audit():
         assert len(row["raw_sha256"]) == 64
     finally:
         await conn.close()
+
+
+def test_raw_payload_storage_integrity(tmp_path):
+    """Verify AGENTS.md §9 raw payload persistence with exact SHA-256 match."""
+    import hashlib
+    from pathlib import Path
+
+    sample_bytes = b"Scheme Code;ISIN;Scheme Name;NAV;Date\n10001;INF0001;Test Fund;10.5;2026-09-18"
+    expected_hash = hashlib.sha256(sample_bytes).hexdigest()
+
+    sha256, rel_path = store_raw_payload("test_src", sample_bytes, "test_file.txt")
+    assert sha256 == expected_hash
+
+    # Check file exists and bytes match exactly
+    full_path = Path(__file__).resolve().parent.parent.parent / rel_path
+    assert full_path.exists()
+    assert full_path.read_bytes() == sample_bytes
+
+
+@pytest.mark.asyncio
+async def test_async_rate_limiter_pacing():
+    """Verify rate limiter enforces minimum interval spacing (AGENTS.md §9)."""
+    import time
+
+    # Pacing at 10 req/s -> 0.1s minimum interval
+    limiter = AsyncRateLimiter(requests_per_second=10.0)
+
+    t0 = time.perf_counter()
+    await limiter.wait()
+    await limiter.wait()
+    t1 = time.perf_counter()
+
+    elapsed = t1 - t0
+    assert elapsed >= 0.08  # at least ~0.1s between two requests
+
+
+def test_all_sebi_categories_parsed():
+    """Verify parse_amfi_feed correctly maps all SEBI equity categories."""
+    multi_category_feed = """Open Ended Schemes (Equity Scheme - Large Cap Fund)
+HDFC Mutual Fund
+10001;INF179K01BE2;-;HDFC Top 100 Fund;Direct Plan;Growth Option;950.50;18-Sep-2026
+
+Open Ended Schemes (Equity Scheme - Value Fund)
+ICICI Prudential Mutual Fund
+10002;INF109K01588;-;ICICI Prudential Value Discovery Fund;Direct Plan;Growth Option;350.20;18-Sep-2026
+
+Open Ended Schemes (Equity Scheme - ELSS)
+Mirae Asset Mutual Fund
+10003;INF769K01DG4;-;Mirae Asset ELSS Tax Saver Fund;Direct Plan;Growth Option;42.10;18-Sep-2026
+
+Open Ended Schemes (Other Scheme - Index Funds)
+UTI Mutual Fund
+10004;INF789F01X85;-;UTI Nifty 50 Index Fund;Direct Plan;Growth Option;165.80;18-Sep-2026
+"""
+    schemes, rejected = parse_amfi_feed(multi_category_feed)
+    assert len(schemes) == 4
+    assert rejected == 0
+
+    cats = {s.scheme_code: s.category_code for s in schemes}
+    assert cats[10001] == "EQ_LARGE_CAP"
+    assert cats[10002] == "EQ_VALUE"
+    assert cats[10003] == "EQ_ELSS"
+    assert cats[10004] == "EQ_INDEX"

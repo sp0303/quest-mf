@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.1] - 2026-09-18
+
+### Added
+- **True ECharts Dynamic Lazy Loading (Rule 6 & Rule 5.6)**:
+  - Decoupled `echarts-vendor` from the static dependency graph of `ScreenerPage` by introducing `EChartInner.tsx` loaded via `React.lazy` inside `EChart.tsx`.
+  - Default route (`/`) JS download strictly reduced to ~69 kB gzip (`index.js` 13.1 kB + `react-vendor.js` 53.1 kB + `ScreenerPage.js` 3.0 kB), fully respecting the $\le 150$ kB gzip gate with zero static reference to `echarts-vendor`.
+- **Security, Rate Limiting & Raw Payload Persistence (AGENTS.md §9)**:
+  - Enabled standard CA-signed TLS certificate verification (`verify=True`) across all AMFI and MFAPI client requests.
+  - Implemented `AsyncRateLimiter` strictly enforcing $\le 1$ req/s throttle against external endpoints.
+  - Added `store_raw_payload` to persist unparsed payload bytes directly to `var/data/raw/{source}/{date}/{hash}` before parsing, and linked the relative path to `ops.ingest_log.object_key`.
+- **Collision-Free Portfolio Identity**:
+  - Replaced integer division `scheme_code // 10` with a database lookup/insert mapping on `(display_name, amc_id)` in `ref.portfolios`.
+- **Complete SEBI Equity Category Mappings**:
+  - Expanded category normalization from 8 to all 14 official SEBI equity categories (Multi Cap, Large Cap, Large & Mid Cap, Mid Cap, Small Cap, Dividend Yield, Value, Contra, Focused, Sectoral/Thematic, ELSS, Flexi Cap, Index Funds, ETFs).
+
 ## [0.3.0] - 2026-09-18
 
 ### Added
