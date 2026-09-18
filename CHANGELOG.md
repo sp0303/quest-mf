@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Default route (`/`) JS download strictly reduced to ~69 kB gzip (`index.js` 13.1 kB + `react-vendor.js` 53.1 kB + `ScreenerPage.js` 3.0 kB), fully respecting the $\le 150$ kB gzip gate with zero static reference to `echarts-vendor`.
 - **Security, Rate Limiting & Raw Payload Persistence (AGENTS.md §9)**:
   - Enabled standard CA-signed TLS certificate verification (`verify=True`) across all AMFI and MFAPI client requests.
-  - Implemented `AsyncRateLimiter` strictly enforcing $\le 1$ req/s throttle against external endpoints.
+  - Implemented `AsyncRateLimiter` and wired `await _mfapi_rate_limiter.wait()` proactively inside `fetch_mfapi_history_with_client`, strictly enforcing $\le 1$ req/s throttle against external endpoints across all concurrent requests.
   - Added `store_raw_payload` to persist unparsed payload bytes directly to `var/data/raw/{source}/{date}/{hash}` before parsing, and linked the relative path to `ops.ingest_log.object_key`.
 - **Collision-Free Portfolio Identity**:
   - Replaced integer division `scheme_code // 10` with a database lookup/insert mapping on `(display_name, amc_id)` in `ref.portfolios`.

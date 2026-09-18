@@ -12,6 +12,8 @@ import pytest
 from app.config import settings
 from workers.ingestion_worker import (
     AsyncRateLimiter,
+    _mfapi_rate_limiter,
+    fetch_mfapi_history_with_client,
     parse_amfi_feed,
     reconcile_amfi_vs_mfapi,
     store_raw_payload,
@@ -149,3 +151,29 @@ UTI Mutual Fund
     assert cats[10002] == "EQ_VALUE"
     assert cats[10003] == "EQ_ELSS"
     assert cats[10004] == "EQ_INDEX"
+
+
+@pytest.mark.asyncio
+async def test_mfapi_proactive_rate_limiting(monkeypatch):
+    """Verify that fetch_mfapi_history_with_client actually waits on _mfapi_rate_limiter."""
+    import httpx
+
+    wait_called = False
+
+    async def mock_wait():
+        nonlocal wait_called
+        wait_called = True
+
+    monkeypatch.setattr(_mfapi_rate_limiter, "wait", mock_wait)
+
+    async with httpx.AsyncClient() as client:
+        # Call with mock that doesn't actually connect
+        async def mock_get(*args, **kwargs):
+            return httpx.Response(200, json={"data": []}, content=b'{"data": []}')
+
+        monkeypatch.setattr(client, "get", mock_get)
+        await fetch_mfapi_history_with_client(client, 12345)
+
+    assert wait_called is True, (
+        "_mfapi_rate_limiter.wait() must be called proactively before every request"
+    )

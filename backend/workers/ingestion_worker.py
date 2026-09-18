@@ -253,11 +253,12 @@ async def fetch_mfapi_history_with_client(
     scheme_code: int,
     max_retries: int = 3,
 ) -> dict[str, Any] | None:
-    """Fetch full daily historical NAV series with connection pooling and 429 backoff."""
+    """Fetch full daily historical NAV series with connection pooling, proactive rate limiting, and 429 backoff."""
     url = f"{MFAPI_BASE_URL}/{scheme_code}"
     headers = {"User-Agent": "QuestMF/0.3.1"}
     for attempt in range(max_retries):
         try:
+            await _mfapi_rate_limiter.wait()
             resp = await client.get(url, headers=headers)
             if resp.status_code == 200:
                 raw_bytes = resp.content
