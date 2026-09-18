@@ -248,28 +248,102 @@ async def fetch_amfi_raw_feed() -> tuple[str, str, str]:
     return raw_text, sha256, storage_rel_path
 
 
-async def fetch_mfapi_history(scheme_code: int) -> dict[str, Any] | None:
-    """Fetch full daily historical NAV series from MFAPI with TLS verification & rate-limiting."""
-    await _mfapi_rate_limiter.wait()
-    headers = {"User-Agent": "QuestMF/0.3.0"}
+async def fetch_mfapi_history_with_client(
+    client: httpx.AsyncClient,
+    scheme_code: int,
+    max_retries: int = 3,
+) -> dict[str, Any] | None:
+    """Fetch full daily historical NAV series with connection pooling and 429 backoff."""
     url = f"{MFAPI_BASE_URL}/{scheme_code}"
-    async with httpx.AsyncClient(timeout=15.0, verify=True) as client:
+    headers = {"User-Agent": "QuestMF/0.3.1"}
+    for attempt in range(max_retries):
         try:
             resp = await client.get(url, headers=headers)
             if resp.status_code == 200:
                 raw_bytes = resp.content
                 store_raw_payload("mfapi", raw_bytes, f"scheme_{scheme_code}.json")
                 return resp.json()
+            elif resp.status_code == 429:
+                wait_time = 2.0 * (attempt + 1)
+                logger.warning(
+                    "MFAPI 429 Too Many Requests for %d. Backing off %0.1fs...",
+                    scheme_code,
+                    wait_time,
+                )
+                await asyncio.sleep(wait_time)
+            else:
+                return None
         except Exception as e:
-            logger.warning("MFAPI fetch failed for scheme %d: %s", scheme_code, e)
+            if attempt == max_retries - 1:
+                logger.warning("MFAPI fetch error for scheme %d: %s", scheme_code, e)
+                return None
+            await asyncio.sleep(1.0 * (attempt + 1))
     return None
 
 
+async def fetch_mfapi_history(scheme_code: int) -> dict[str, Any] | None:
+    """Convenience wrapper for single scheme fetch."""
+    async with httpx.AsyncClient(timeout=15.0, verify=True) as client:
+        return await fetch_mfapi_history_with_client(client, scheme_code)
+
+
+async def flush_nav_records_to_db(
+    conn: asyncpg.Connection,
+    records: list[tuple[int, date, float, int, int]],
+) -> int:
+    """Flush a list of NAV records into market.nav_history via staging and COPY (Rule 7)."""
+    if not records:
+        return 0
+
+    unique_records = {}
+    for code, d, nav, i_id, rev in records:
+        unique_records[(code, d)] = (code, d, nav, i_id, rev)
+    deduped = list(unique_records.values())
+
+    await conn.execute(
+        """
+        CREATE TEMP TABLE IF NOT EXISTS staging_nav (
+            scheme_code INT,
+            nav_date DATE,
+            nav NUMERIC(18,6),
+            ingest_id BIGINT,
+            revision SMALLINT
+        ) ON COMMIT PRESERVE ROWS;
+        TRUNCATE TABLE staging_nav;
+        """
+    )
+
+    chunk_size = 5000
+    for i in range(0, len(deduped), chunk_size):
+        chunk = deduped[i : i + chunk_size]
+        await conn.copy_records_to_table(
+            "staging_nav",
+            records=chunk,
+            columns=["scheme_code", "nav_date", "nav", "ingest_id", "revision"],
+        )
+
+    await conn.execute(
+        """
+        INSERT INTO market.nav_history (scheme_code, nav_date, nav, ingest_id, revision)
+        SELECT scheme_code, nav_date, nav, ingest_id, revision FROM staging_nav
+        ON CONFLICT (scheme_code, nav_date) DO UPDATE
+        SET nav = EXCLUDED.nav,
+            ingest_id = EXCLUDED.ingest_id,
+            revision = market.nav_history.revision + 1;
+        DROP TABLE IF EXISTS staging_nav;
+        """
+    )
+    return len(deduped)
+
+
 async def ingest_amfi_and_historical(
-    max_history_schemes: int | None = 15,
+    max_history_schemes: int | None = None,
+    concurrency: int = 5,
 ) -> dict[str, Any]:
-    """Execute complete ingestion pipeline with AMFI feed, MFAPI history, and reconciliation."""
-    logger.info("Starting AMFI & MFAPI ingestion pipeline...")
+    """Execute complete ingestion pipeline with AMFI feed, parallel MFAPI history, and reconciliation."""
+    logger.info(
+        "Starting AMFI & MFAPI ingestion pipeline (parallel concurrency=%d)...", concurrency
+    )
     conn = await asyncpg.connect(settings.pg_dsn)
     try:
         # 1. Fetch raw AMFI feed & persist unparsed bytes
@@ -354,9 +428,6 @@ async def ingest_amfi_and_historical(
         logger.info("Found %d canonical Direct-Growth equity schemes.", len(canonical_equity))
 
         # 6. Upsert Portfolios & Schemes
-        reconciliation_results = []
-        nav_records_to_insert = []
-
         if max_history_schemes is not None and max_history_schemes > 0:
             selected_for_history = canonical_equity[:max_history_schemes]
             logger.info(
@@ -372,10 +443,21 @@ async def ingest_amfi_and_historical(
                 len(selected_for_history),
             )
 
+        # Synchronize portfolio_id sequence to prevent collisions with historical IDs
+        await conn.execute(
+            """
+            SELECT setval(
+                pg_get_serial_sequence('ref.portfolios', 'portfolio_id'),
+                COALESCE((SELECT max(portfolio_id) FROM ref.portfolios), 1) + 1,
+                false
+            );
+            """
+        )
+
+        amfi_today_records = []
         for s in selected_for_history:
             amc_id = amc_map.get(s.amc_name, 1)
 
-            # Derive clean strategy name without plan/option suffix
             clean_name = (
                 s.scheme_name.replace(" - Direct Plan - Growth Option", "")
                 .replace(" - Direct Plan - Growth", "")
@@ -384,7 +466,6 @@ async def ingest_amfi_and_historical(
                 .strip()
             )
 
-            # Collision-free portfolio lookup or creation
             p_row = await conn.fetchrow(
                 """
                 SELECT portfolio_id FROM ref.schemes WHERE scheme_code = $1
@@ -410,7 +491,6 @@ async def ingest_amfi_and_historical(
                 )
                 pid = new_p["portfolio_id"]
 
-            # Insert scheme
             await conn.execute(
                 """
                 INSERT INTO ref.schemes (
@@ -429,7 +509,6 @@ async def ingest_amfi_and_historical(
                 s.scheme_name,
             )
 
-            # Insert category history mapping
             await conn.execute(
                 """
                 INSERT INTO ref.category_history (portfolio_id, valid_from, valid_to, category_id, mapping_confidence)
@@ -440,104 +519,106 @@ async def ingest_amfi_and_historical(
                 s.category_id,
             )
 
-            # Insert today's AMFI NAV
-            nav_records_to_insert.append((s.scheme_code, s.nav_date, s.nav, ingest_id, 0))
+            amfi_today_records.append((s.scheme_code, s.nav_date, s.nav, ingest_id, 0))
 
-            # 7. Pull MFAPI historical records & reconcile
-            mfapi_data = await fetch_mfapi_history(s.scheme_code)
-            if mfapi_data and "data" in mfapi_data:
-                history_points = mfapi_data["data"]
+        # Flush today's AMFI NAV points
+        await flush_nav_records_to_db(conn, amfi_today_records)
+
+        # 7. Parallel Multi-Year Historical Fetch via MFAPI
+        sem = asyncio.Semaphore(concurrency)
+        client_limits = httpx.Limits(
+            max_connections=concurrency * 2, max_keepalive_connections=concurrency
+        )
+        reconciliation_results = []
+        total_historical_rows = 0
+
+        async with httpx.AsyncClient(
+            timeout=20.0, verify=True, limits=client_limits
+        ) as http_client:
+
+            async def process_scheme_history(
+                scheme: AmfiParsedScheme,
+            ) -> tuple[list[tuple[int, date, float, int, int]], dict[str, Any] | None]:
+                async with sem:
+                    records: list[tuple[int, date, float, int, int]] = []
+                    recon_info: dict[str, Any] | None = None
+                    mfapi_data = await fetch_mfapi_history_with_client(
+                        http_client, scheme.scheme_code
+                    )
+
+                    if mfapi_data and "data" in mfapi_data:
+                        history_points = mfapi_data["data"]
+                        if history_points:
+                            latest_mfapi = history_points[0]
+                            mfapi_d = parse_amfi_nav_date(latest_mfapi["date"])
+                            mfapi_val = float(latest_mfapi["nav"])
+
+                            if mfapi_d == scheme.nav_date:
+                                diff = reconcile_amfi_vs_mfapi(scheme.nav, mfapi_val)
+                                recon_info = {
+                                    "scheme_code": scheme.scheme_code,
+                                    "scheme_name": scheme.scheme_name,
+                                    "amfi_nav": scheme.nav,
+                                    "mfapi_nav": mfapi_val,
+                                    "diff_pct": diff * 100,
+                                    "passed": diff < 0.0001,
+                                }
+
+                            for pt in history_points[:1000]:
+                                pt_d = parse_amfi_nav_date(pt["date"])
+                                pt_nav = float(pt["nav"])
+                                if pt_d and pt_nav > 0:
+                                    records.append((scheme.scheme_code, pt_d, pt_nav, ingest_id, 0))
+
+                    return records, recon_info
+
+            # Process in batches of 50 schemes to stream DB writes incrementally
+            batch_size = 50
+            total_schemes = len(selected_for_history)
+
+            for b_start in range(0, total_schemes, batch_size):
+                b_end = min(b_start + batch_size, total_schemes)
+                batch_schemes = selected_for_history[b_start:b_end]
+
+                tasks = [process_scheme_history(s) for s in batch_schemes]
+                results = await asyncio.gather(*tasks)
+
+                batch_nav_records: list[tuple[int, date, float, int, int]] = []
+                for recs, recon in results:
+                    batch_nav_records.extend(recs)
+                    if recon:
+                        reconciliation_results.append(recon)
+
+                # Flush batch records to PostgreSQL
+                flushed = await flush_nav_records_to_db(conn, batch_nav_records)
+                total_historical_rows += flushed
+
+                pct = (b_end / total_schemes) * 100
                 logger.info(
-                    "Scheme %d: retrieved %d historical NAV points from MFAPI.",
-                    s.scheme_code,
-                    len(history_points),
+                    "[%d/%d schemes | %0.1f%%] Flushed %d historical NAV rows (total historical: %d).",
+                    b_end,
+                    total_schemes,
+                    pct,
+                    flushed,
+                    total_historical_rows,
                 )
 
-                # Check reconciliation on latest matching date
-                if history_points:
-                    latest_mfapi = history_points[0]
-                    mfapi_d = parse_amfi_nav_date(latest_mfapi["date"])
-                    mfapi_val = float(latest_mfapi["nav"])
+        logger.info(
+            "AMFI & MFAPI parallel ingestion complete. Ingested %d total historical rows across %d schemes.",
+            total_historical_rows,
+            total_schemes,
+        )
 
-                    if mfapi_d == s.nav_date:
-                        diff = reconcile_amfi_vs_mfapi(s.nav, mfapi_val)
-                        reconciliation_results.append(
-                            {
-                                "scheme_code": s.scheme_code,
-                                "scheme_name": s.scheme_name,
-                                "amfi_nav": s.nav,
-                                "mfapi_nav": mfapi_val,
-                                "diff_pct": diff * 100,
-                                "passed": diff < 0.0001,  # < 0.01%
-                            }
-                        )
-
-                # Prepare multi-year history for insertion
-                # Keep last 1,000 trading days (approx 4 years)
-                for pt in history_points[:1000]:
-                    pt_d = parse_amfi_nav_date(pt["date"])
-                    pt_nav = float(pt["nav"])
-                    if pt_d and pt_nav > 0:
-                        nav_records_to_insert.append((s.scheme_code, pt_d, pt_nav, ingest_id, 0))
-
-        # 8. High-performance COPY to market.nav_history using staging or bulk insert
-        if nav_records_to_insert:
-            # Deduplicate by (scheme_code, nav_date)
-            unique_records = {}
-            for code, d, nav, i_id, rev in nav_records_to_insert:
-                unique_records[(code, d)] = (code, d, nav, i_id, rev)
-
-            deduped_records = list(unique_records.values())
-            logger.info("Inserting %d unique daily NAV records...", len(deduped_records))
-
-            # Rule 7: Bulk writes use COPY -> staging -> MERGE/upsert.
-            await conn.execute(
-                """
-                CREATE TEMP TABLE IF NOT EXISTS staging_nav (
-                    scheme_code INT,
-                    nav_date DATE,
-                    nav NUMERIC(18,6),
-                    ingest_id BIGINT,
-                    revision SMALLINT
-                ) ON COMMIT PRESERVE ROWS;
-                TRUNCATE TABLE staging_nav;
-                """
-            )
-
-            # Batch insert into staging in chunks of 5,000
-            chunk_size = 5000
-            for i in range(0, len(deduped_records), chunk_size):
-                chunk = deduped_records[i : i + chunk_size]
-                await conn.copy_records_to_table(
-                    "staging_nav",
-                    records=chunk,
-                    columns=["scheme_code", "nav_date", "nav", "ingest_id", "revision"],
-                )
-
-            # Merge from staging into market.nav_history
-            await conn.execute(
-                """
-                INSERT INTO market.nav_history (scheme_code, nav_date, nav, ingest_id, revision)
-                SELECT scheme_code, nav_date, nav, ingest_id, revision FROM staging_nav
-                ON CONFLICT (scheme_code, nav_date) DO UPDATE
-                SET nav = EXCLUDED.nav,
-                    ingest_id = EXCLUDED.ingest_id,
-                    revision = market.nav_history.revision + 1;
-                DROP TABLE IF EXISTS staging_nav;
-                """
-            )
-
-        logger.info("AMFI & MFAPI ingestion completed successfully.")
         return {
             "ingest_id": ingest_id,
             "canonical_equity_schemes": len(canonical_equity),
             "reconciled_schemes": len(reconciliation_results),
-            "reconciliation_summary": reconciliation_results,
-            "total_nav_records_ingested": len(nav_records_to_insert),
+            "reconciliation_summary": reconciliation_results[:10],
+            "total_nav_records_ingested": total_historical_rows + len(amfi_today_records),
         }
     finally:
         await conn.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(ingest_amfi_and_historical(max_history_schemes=15))
+    asyncio.run(ingest_amfi_and_historical(concurrency=5))

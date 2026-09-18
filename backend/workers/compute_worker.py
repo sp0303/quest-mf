@@ -122,14 +122,14 @@ async def run_compute_job() -> None:
             ir_3y = round((c_3y - 0.12) / max(vol, 0.05), 2)
 
             risk_payload = {
-                "volatility_ann": round(vol * 100, 2),
-                "downside_dev_ann": round(downside * 100, 2),
-                "sharpe_ratio": round(shp, 2),
-                "sortino_ratio": round(sortino, 2),
-                "max_drawdown": round(mdd * 100, 2),
-                "cagr_3y": round(c_3y * 100, 2),
+                "volatility_ann": round(vol * 100, 2) if vol is not None else None,
+                "downside_dev_ann": round(downside * 100, 2) if downside is not None else None,
+                "sharpe_ratio": round(shp, 2) if shp is not None else None,
+                "sortino_ratio": round(sortino, 2) if sortino is not None else None,
+                "max_drawdown": round(mdd * 100, 2) if mdd is not None else None,
+                "cagr_3y": round(c_3y * 100, 2) if c_3y is not None else None,
                 "observations": len(daily_returns),
-                "alpha_3m": round(alpha_3m * 100, 2),
+                "alpha_3m": round(alpha_3m * 100, 2) if alpha_3m is not None else None,
                 "ir_3y": ir_3y,
             }
 
@@ -183,7 +183,7 @@ async def run_compute_job() -> None:
                     "momentum": min(100.0, max(0.0, 50.0 + m["r_3m"] * 250.0)),
                     "persistence": m["shp_3m"],
                     "quality": min(100.0, max(0.0, 50.0 + m["ir_3y"] * 25.0)),
-                    "risk": min(100.0, max(0.0, 100.0 + m["mdd"] * 200.0)),
+                    "risk": min(100.0, max(0.0, 100.0 + (m["mdd"] or 0.0) * 200.0)),
                     "cost": 75.0,
                 }
                 composite, conf = compute_composite_score(
