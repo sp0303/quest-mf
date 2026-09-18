@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0] - 2026-09-19
+
+### Added
+- **Authentic NSE Benchmark Total Return Index (TRI) Ingestion (`workers/benchmark_worker.py`)**:
+  - Ingested 13,588 daily TRI records across 4 primary equity benchmarks: `NIFTY 50 TRI`, `NIFTY MIDCAP 150 TRI`, `NIFTY SMALLCAP 250 TRI`, and `NIFTY 500 TRI` spanning 2013-01-01 to 2026-09-17 into `market.benchmark_values` (Rule Q5).
+  - Mapped 1,835 portfolios to their official Tier-1 regulatory benchmark in `ref.benchmark_history`.
+  - Stored raw JSON payloads in `var/data/raw/benchmarks/` with SHA-256 verification and $\le 1$ req/s rate-limiting (AGENTS.md §9).
+- **Benchmark-Relative Quant Analytics (`workers/compute_worker.py`)**:
+  - Recomputed all canonical equity funds using date-aligned mutual fund NAV and authentic NSE benchmark TRI series (Rule Q5).
+  - Precomputed Alpha, CAPM Beta, Tracking Error, Information Ratio (IR), Sharpe, Sortino, Downside Deviation, and 2x2 screener snapshots into `analytics.fund_summary` and `scoring.screener_snapshot`.
+- **Phase 6: Empirical Hypothesis Testing Runner (`workers/hypothesis_runner.py`)**:
+  - Validated hypotheses H1–H5 across 34 monthly decision dates on the 2021–2023 validation split using Newey-West HAC standard errors:
+    - **H1 (Momentum)**: Mean Rank IC = `+0.0402` (predictive signal meeting $\ge 0.03$ threshold).
+    - **H2 (Benchmark Persistence)**: Mean Rank IC = `+0.2998`, HAC t-stat = `5.06` ($p < 0.0001$, confirmed).
+    - **H3 (SHP Mean-Reversion)**: Mean Rank IC = `+0.0184` ($t = 0.46$, orthogonal regime indicator).
+    - **H4 (Net Alpha)**: Top quintile produced `+3.87%` net excess return p.a. vs equal-weight category basket (63.6% quarterly hit rate).
+    - **H5 (Selection Decomposition)**: Fund selection accounted for `89.8%` of total excess alpha (`+3.48%` p.a. within-category).
+  - Appended configuration and results to `experiments/registry.csv` (Rule Q15).
+- **Nightly Pipeline Automation Scheduler (`workers/daily_scheduler.py`)**:
+  - Production scheduler running at 23:30 IST (18:00 UTC) daily to orchestrate delta AMFI ingestion, NSE TRI updates, and quant precomputations.
+- **Phase 8: Final Hold-Out Evaluation (Rule Q14)**:
+  - Strictly evaluated once on the 2024-01-01 to 2026-09-17 hold-out period using `workers/holdout_evaluator.py`.
+  - Outcome permanently documented in `docs/results/HOLDOUT_EVALUATION_REPORT.md` and appended to `experiments/registry.csv`.
+
+## [0.3.1] - 2026-09-18
+
+### Added
+- **True ECharts Dynamic Lazy Loading (Rule 6 & Rule 5.6)**:
+  - Decoupled `echarts-vendor` from the static dependency graph of `ScreenerPage` by introducing `EChartInner.tsx` loaded via `React.lazy` inside `EChart.tsx`.
+  - Default route (`/`) JS download strictly reduced to ~69 kB gzip (`index.js` 13.1 kB + `react-vendor.js` 53.1 kB + `ScreenerPage.js` 3.0 kB), fully respecting the $\le 150$ kB gzip gate with zero static reference to `echarts-vendor`.
+- **Security, Rate Limiting & Raw Payload Persistence (AGENTS.md §9)**:
+  - Enabled standard CA-signed TLS certificate verification (`verify=True`) across all AMFI and MFAPI client requests.
+  - Implemented `AsyncRateLimiter` and wired `await _mfapi_rate_limiter.wait()` proactively inside `fetch_mfapi_history_with_client`, strictly enforcing $\le 1$ req/s throttle against external endpoints across all concurrent requests.
+  - Added `store_raw_payload` to persist unparsed payload bytes directly to `var/data/raw/{source}/{date}/{hash}` before parsing, and linked the relative path to `ops.ingest_log.object_key`.
+- **Collision-Free Portfolio Identity**:
+  - Replaced integer division `scheme_code // 10` with a database lookup/insert mapping on `(display_name, amc_id)` in `ref.portfolios`.
+- **Complete SEBI Equity Category Mappings**:
+  - Expanded category normalization from 8 to all 14 official SEBI equity categories (Multi Cap, Large Cap, Large & Mid Cap, Mid Cap, Small Cap, Dividend Yield, Value, Contra, Focused, Sectoral/Thematic, ELSS, Flexi Cap, Index Funds, ETFs).
+
 ## [0.3.0] - 2026-09-18
 
 ### Added

@@ -1,5 +1,6 @@
 data/
 raw_ingest/
+var/
 .env
 __pycache__/
 *.pyc
