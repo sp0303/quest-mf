@@ -428,21 +428,30 @@ async def ingest_amfi_and_historical(
         ]
         logger.info("Found %d canonical Direct-Growth equity schemes.", len(canonical_equity))
 
-        # 6. Upsert Portfolios & Schemes
-        if max_history_schemes is not None and max_history_schemes > 0:
-            selected_for_history = canonical_equity[:max_history_schemes]
+        # 6. Upsert Portfolios & Schemes.
+        # `selected_for_history` gates registration + today's AMFI NAV point and always
+        # covers every canonical scheme, regardless of max_history_schemes. The separate
+        # `schemes_for_deep_history` below scopes the expensive MFAPI multi-year backfill:
+        # 0 means "delta only" (no MFAPI calls), None means "unlimited" (full backfill).
+        selected_for_history = canonical_equity
+
+        if max_history_schemes is None:
+            schemes_for_deep_history = canonical_equity
             logger.info(
-                "Selected %d of %d canonical schemes for history sync (max_history_schemes=%d).",
-                len(selected_for_history),
+                "Deep MFAPI history: ALL %d canonical schemes (max_history_schemes=None).",
+                len(schemes_for_deep_history),
+            )
+        elif max_history_schemes > 0:
+            schemes_for_deep_history = canonical_equity[:max_history_schemes]
+            logger.info(
+                "Deep MFAPI history: %d of %d canonical schemes (max_history_schemes=%d).",
+                len(schemes_for_deep_history),
                 len(canonical_equity),
                 max_history_schemes,
             )
         else:
-            selected_for_history = canonical_equity
-            logger.info(
-                "Selected ALL %d canonical schemes for history sync.",
-                len(selected_for_history),
-            )
+            schemes_for_deep_history = []
+            logger.info("Deep MFAPI history: SKIPPED (max_history_schemes=0, delta-only run).")
 
         # Synchronize portfolio_id sequence to prevent collisions with historical IDs
         await conn.execute(
@@ -575,11 +584,11 @@ async def ingest_amfi_and_historical(
 
             # Process in batches of 50 schemes to stream DB writes incrementally
             batch_size = 50
-            total_schemes = len(selected_for_history)
+            total_schemes = len(schemes_for_deep_history)
 
             for b_start in range(0, total_schemes, batch_size):
                 b_end = min(b_start + batch_size, total_schemes)
-                batch_schemes = selected_for_history[b_start:b_end]
+                batch_schemes = schemes_for_deep_history[b_start:b_end]
 
                 tasks = [process_scheme_history(s) for s in batch_schemes]
                 results = await asyncio.gather(*tasks)
