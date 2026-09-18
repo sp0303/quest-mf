@@ -63,6 +63,67 @@ async def get_nav_series(
     }
 
 
+@router.get("/funds/{portfolio_id}/nav-history")
+async def get_fund_nav_history(
+    portfolio_id: int,
+    from_date: date | None = Query(None),
+    to_date: date | None = Query(None),
+    points: int = Query(2000, le=5000),
+    conn: asyncpg.Connection = Depends(get_db_connection),
+):
+    """Canonical Direct-Growth NAV series for the fund-detail chart.
+
+    A portfolio can map to several canonical Direct-Growth scheme_codes
+    (segregated side-pockets), so collapse to a single series (Rule Q7) by
+    choosing the scheme with the most recent, longest NAV coverage before
+    returning its values within an explicit time window (Rule 8).
+    """
+    scheme = await conn.fetchrow(
+        """
+        SELECT s.scheme_code
+        FROM ref.schemes s
+        JOIN (
+            SELECT scheme_code, MAX(nav_date) AS last_nav_date, COUNT(*) AS pts
+            FROM market.nav_history
+            GROUP BY scheme_code
+        ) st ON st.scheme_code = s.scheme_code
+        WHERE s.portfolio_id = $1
+          AND s.is_canonical = true
+        ORDER BY st.last_nav_date DESC, st.pts DESC, s.scheme_code ASC
+        LIMIT 1;
+        """,
+        portfolio_id,
+    )
+    if scheme is None:
+        raise HTTPException(status_code=404, detail="No canonical scheme for portfolio")
+
+    end_d = to_date or date.today()
+    start_d = from_date or (end_d - timedelta(days=1825))  # Default 5Y
+
+    rows = await conn.fetch(
+        """
+        SELECT h.nav_date, h.nav
+        FROM market.nav_history h
+        WHERE h.scheme_code = $1
+          AND h.nav_date BETWEEN $2 AND $3
+        ORDER BY h.nav_date ASC;
+        """,
+        scheme["scheme_code"],
+        start_d,
+        end_d,
+    )
+    if not rows:
+        raise HTTPException(
+            status_code=404, detail="No NAV history found for portfolio in the given range"
+        )
+
+    dates = [r["nav_date"].isoformat() for r in rows]
+    navs = [float(r["nav"]) for r in rows]
+    s_dates, s_navs = lttb(dates, navs, target_points=points)
+
+    return {"dates": s_dates, "navs": s_navs}
+
+
 @router.get("/nav/{portfolio_id}/overlay")
 async def get_nav_overlay(
     portfolio_id: int,
