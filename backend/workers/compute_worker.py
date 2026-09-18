@@ -300,7 +300,17 @@ async def run_compute_job() -> None:
                         $14, $15, 0.007, 0.01, 365, $16, $17, $18, 0, true
                     )
                     ON CONFLICT (as_of_date, model_version, category_id, portfolio_id) DO UPDATE
-                    SET composite = EXCLUDED.composite,
+                    SET fund_name = EXCLUDED.fund_name,
+                        amc = EXCLUDED.amc,
+                        ret_1m = EXCLUDED.ret_1m,
+                        ret_3m = EXCLUDED.ret_3m,
+                        ret_6m = EXCLUDED.ret_6m,
+                        ret_1y = EXCLUDED.ret_1y,
+                        cagr_3y = EXCLUDED.cagr_3y,
+                        alpha_3m = EXCLUDED.alpha_3m,
+                        ir_3y = EXCLUDED.ir_3y,
+                        mdd_3y = EXCLUDED.mdd_3y,
+                        composite = EXCLUDED.composite,
                         peer_pct_3m = EXCLUDED.peer_pct_3m,
                         shp_3m = EXCLUDED.shp_3m,
                         quadrant = EXCLUDED.quadrant,
