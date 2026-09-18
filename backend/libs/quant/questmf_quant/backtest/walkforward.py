@@ -43,6 +43,7 @@ class Holding:
     units: float
     gross_cost: float
     net_invested: float
+    last_nav: float = 0.0
 
 
 @dataclass
@@ -97,7 +98,7 @@ def run_walkforward_backtest(
     # State tracking
     gross_cash = cfg.initial_capital
     net_cash = cfg.initial_capital
-    gross_holdings: dict[int, tuple[float, float]] = {}  # pid -> (units, cost_basis)
+    gross_holdings: dict[int, list[float]] = {}  # pid -> [units, last_nav]
     net_holdings: dict[int, Holding] = {}  # pid -> Holding
 
     equity_gross: list[tuple[date, float]] = []
@@ -152,7 +153,7 @@ def run_walkforward_backtest(
             ]
             for pid in to_exit_net:
                 h = net_holdings.pop(pid)
-                nav = nav_by_portfolio.get(pid, {}).get(d, h.buy_nav)
+                nav = nav_by_portfolio.get(pid, {}).get(d, h.last_nav or h.buy_nav)
                 days_held = (d - h.buy_date).days
                 f_res = calculate_net_return(
                     initial_amount=h.net_invested,
@@ -168,8 +169,8 @@ def run_walkforward_backtest(
 
             to_exit_gross = [pid for pid in gross_holdings if pid not in targets]
             for pid in to_exit_gross:
-                units, _ = gross_holdings.pop(pid)
-                nav = nav_by_portfolio.get(pid, {}).get(d, 1.0)
+                units, last_nav = gross_holdings.pop(pid)
+                nav = nav_by_portfolio.get(pid, {}).get(d, last_nav)
                 gross_cash += units * nav
 
             # 2. Buy new targets
@@ -179,7 +180,7 @@ def run_walkforward_backtest(
                 for pid in new_gross_targets:
                     nav = nav_by_portfolio.get(pid, {}).get(d, 1.0)
                     units = alloc_per / nav
-                    gross_holdings[pid] = (units, nav)
+                    gross_holdings[pid] = [units, nav]
                 gross_cash = 0.0
 
             new_net_targets = [pid for pid in targets if pid not in net_holdings]
@@ -197,32 +198,35 @@ def run_walkforward_backtest(
                         units=units,
                         gross_cost=alloc_per,
                         net_invested=net_inv,
+                        last_nav=nav,
                     )
                 net_cash = 0.0
 
         # Mark-to-market daily valuations
         g_val = gross_cash
-        for pid, (units, _) in gross_holdings.items():
+        for pid, gh in gross_holdings.items():
             nav = nav_by_portfolio.get(pid, {}).get(d)
             if nav is not None:
-                g_val += units * nav
+                gh[1] = nav
+            g_val += gh[0] * gh[1]
 
         n_val = net_cash
         for pid, h in net_holdings.items():
             nav = nav_by_portfolio.get(pid, {}).get(d)
             if nav is not None:
-                days_held = (d - h.buy_date).days
-                f_res = calculate_net_return(
-                    initial_amount=h.net_invested,
-                    buy_nav=h.buy_nav,
-                    sell_nav=nav,
-                    days_held=days_held,
-                    exit_load_rate=cfg.exit_load_rate,
-                    exit_load_days=cfg.exit_load_days,
-                    stcg_rate=cfg.stcg_rate,
-                    ltcg_rate=cfg.ltcg_rate,
-                )
-                n_val += f_res.net_proceeds
+                h.last_nav = nav
+            days_held = (d - h.buy_date).days
+            f_res = calculate_net_return(
+                initial_amount=h.net_invested,
+                buy_nav=h.buy_nav,
+                sell_nav=h.last_nav,
+                days_held=days_held,
+                exit_load_rate=cfg.exit_load_rate,
+                exit_load_days=cfg.exit_load_days,
+                stcg_rate=cfg.stcg_rate,
+                ltcg_rate=cfg.ltcg_rate,
+            )
+            n_val += f_res.net_proceeds
 
         equity_gross.append((d, round(g_val, 2)))
         equity_net.append((d, round(n_val, 2)))

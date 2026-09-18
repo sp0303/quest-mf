@@ -9,19 +9,23 @@ export interface FundNavChartProps {
   loading?: boolean;
 }
 
+import { getComputedToken } from "@/lib/chartTheme";
+
 export const FundNavChart: React.FC<FundNavChartProps> = ({
   dates = [],
   navs = [],
   loading = false,
 }) => {
   const option: EChartsOption = useMemo(() => {
-    return {
+    const ink = getComputedToken("--color-ink", "#0a0a0a");
+    const midGray = getComputedToken("--color-mid-gray", "#737373");
+    const hairline = getComputedToken("--color-hairline", "#e5e5e5");
 
+    return {
       title: {
         text: "Historical NAV Series (Canonical Direct-Growth)",
         left: "left",
-        textStyle: { fontSize: 13, fontWeight: "bold" as const, color: "#0a0a0a" },
-
+        textStyle: { fontSize: 13, fontWeight: "bold" as const, color: ink },
       },
       tooltip: {
         trigger: "axis",
@@ -34,13 +38,13 @@ export const FundNavChart: React.FC<FundNavChartProps> = ({
       xAxis: {
         type: "category",
         data: dates,
-        axisLine: { lineStyle: { color: "#737373" } },
+        axisLine: { lineStyle: { color: midGray } },
       },
       yAxis: {
         type: "value",
         scale: true,
-        splitLine: { lineStyle: { type: "dashed", color: "#e5e5e5" } },
-        axisLine: { lineStyle: { color: "#737373" } },
+        splitLine: { lineStyle: { type: "dashed", color: hairline } },
+        axisLine: { lineStyle: { color: midGray } },
       },
       dataZoom: [{ type: "inside" }, { type: "slider", bottom: 10 }],
       series: [
@@ -50,7 +54,7 @@ export const FundNavChart: React.FC<FundNavChartProps> = ({
           data: navs,
           smooth: true,
           showSymbol: false,
-          lineStyle: { color: "#0a0a0a", width: 2 },
+          lineStyle: { color: ink, width: 2 },
           areaStyle: {
             color: {
               type: "linear",
@@ -68,6 +72,7 @@ export const FundNavChart: React.FC<FundNavChartProps> = ({
       ],
     };
   }, [dates, navs]);
+
 
   return (
     <Card className="p-4 border-hairline bg-paper rounded-3xl">

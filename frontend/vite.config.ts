@@ -10,6 +10,16 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "echarts-vendor": ["echarts"],
+          "react-vendor": ["react", "react-dom", "react-router-dom"],
+        },
+      },
+    },
+  },
   server: {
     port: 3000,
     proxy: {
@@ -20,3 +30,4 @@ export default defineConfig({
     },
   },
 });
+

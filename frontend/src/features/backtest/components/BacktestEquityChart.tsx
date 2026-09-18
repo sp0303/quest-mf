@@ -9,6 +9,8 @@ export interface BacktestEquityChartProps {
   loading?: boolean;
 }
 
+import { getComputedToken } from "@/lib/chartTheme";
+
 export const BacktestEquityChart: React.FC<BacktestEquityChartProps> = ({
   series,
   loading = false,
@@ -18,13 +20,15 @@ export const BacktestEquityChart: React.FC<BacktestEquityChartProps> = ({
     const grossValues = series?.gross?.map(([, v]) => v) || [];
     const netValues = series?.net?.map(([, v]) => v) || [];
 
-    return {
+    const ink = getComputedToken("--color-ink", "#0a0a0a");
+    const midGray = getComputedToken("--color-mid-gray", "#737373");
+    const hairline = getComputedToken("--color-hairline", "#e5e5e5");
 
+    return {
       title: {
         text: "Walk-Forward Portfolio Equity Curve (₹100k Base)",
         left: "left",
-        textStyle: { fontSize: 13, fontWeight: "bold" as const, color: "#0a0a0a" },
-
+        textStyle: { fontSize: 13, fontWeight: "bold" as const, color: ink },
       },
       tooltip: {
         trigger: "axis",
@@ -41,13 +45,13 @@ export const BacktestEquityChart: React.FC<BacktestEquityChartProps> = ({
       xAxis: {
         type: "category",
         data: dates,
-        axisLine: { lineStyle: { color: "#737373" } },
+        axisLine: { lineStyle: { color: midGray } },
       },
       yAxis: {
         type: "value",
         scale: true,
-        splitLine: { lineStyle: { type: "dashed", color: "#e5e5e5" } },
-        axisLine: { lineStyle: { color: "#737373" } },
+        splitLine: { lineStyle: { type: "dashed", color: hairline } },
+        axisLine: { lineStyle: { color: midGray } },
       },
       series: [
         {
@@ -56,7 +60,7 @@ export const BacktestEquityChart: React.FC<BacktestEquityChartProps> = ({
           data: grossValues,
           smooth: true,
           showSymbol: false,
-          lineStyle: { color: "#737373", width: 2, type: "dashed" },
+          lineStyle: { color: midGray, width: 2, type: "dashed" },
         },
         {
           name: "Net Equity (After Friction)",
@@ -64,7 +68,7 @@ export const BacktestEquityChart: React.FC<BacktestEquityChartProps> = ({
           data: netValues,
           smooth: true,
           showSymbol: false,
-          lineStyle: { color: "#0a0a0a", width: 2.5 },
+          lineStyle: { color: ink, width: 2.5 },
         },
       ],
     };

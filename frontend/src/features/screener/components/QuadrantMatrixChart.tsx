@@ -4,6 +4,8 @@ import { EChart } from "@/components/charts/EChart";
 import { Card } from "@/components/ui/Card";
 import type { MatrixItem } from "@/lib/schema";
 
+import { getComputedToken } from "@/lib/chartTheme";
+
 export interface QuadrantMatrixChartProps {
   data: MatrixItem[];
   onSelectFund?: (portfolioId: number) => void;
@@ -15,15 +17,17 @@ export const QuadrantMatrixChart: React.FC<QuadrantMatrixChartProps> = ({
   loading = false,
 }) => {
   const option: EChartsOption = useMemo(() => {
-    return {
+    const ink = getComputedToken("--color-ink", "#0a0a0a");
+    const midGray = getComputedToken("--color-mid-gray", "#737373");
+    const hairline = getComputedToken("--color-hairline", "#e5e5e5");
 
+    return {
       title: {
         text: "2×2 Quadrant Matrix",
         subtext: "X: Peer Percentile (3M)  |  Y: Own-History Percentile SHP (3M)",
         left: "center",
-        textStyle: { fontSize: 13, fontWeight: "bold" as const, color: "#0a0a0a" },
-
-        subtextStyle: { fontSize: 11, color: "#737373" },
+        textStyle: { fontSize: 13, fontWeight: "bold" as const, color: ink },
+        subtextStyle: { fontSize: 11, color: midGray },
       },
       tooltip: {
         formatter: (params: any) => {
@@ -32,21 +36,20 @@ export const QuadrantMatrixChart: React.FC<QuadrantMatrixChartProps> = ({
           return `<b>${d.name}</b><br/>Peer: ${d.value[0]}%<br/>SHP: ${d.value[1]}%<br/>Quadrant: Q${d.quadrant}<br/>Composite: ${d.composite.toFixed(1)}`;
         },
       },
-
       grid: { top: 60, right: 30, bottom: 40, left: 40 },
       xAxis: {
         type: "value",
         min: 0,
         max: 100,
-        splitLine: { lineStyle: { type: "dashed", color: "#e5e5e5" } },
-        axisLine: { lineStyle: { color: "#737373" } },
+        splitLine: { lineStyle: { type: "dashed", color: hairline } },
+        axisLine: { lineStyle: { color: midGray } },
       },
       yAxis: {
         type: "value",
         min: 0,
         max: 100,
-        splitLine: { lineStyle: { type: "dashed", color: "#e5e5e5" } },
-        axisLine: { lineStyle: { color: "#737373" } },
+        splitLine: { lineStyle: { type: "dashed", color: hairline } },
+        axisLine: { lineStyle: { color: midGray } },
       },
       series: [
         {
@@ -58,23 +61,19 @@ export const QuadrantMatrixChart: React.FC<QuadrantMatrixChartProps> = ({
             quadrant: d.quadrant,
             composite: d.composite,
             itemStyle: {
-              color:
-                d.quadrant === 1
-                  ? "#0a0a0a"
-                  : d.quadrant === 2
-                  ? "#737373"
-                  : "#a3a3a3",
+              color: d.quadrant === 1 ? ink : midGray,
             },
           })),
           markLine: {
             silent: true,
-            lineStyle: { color: "#e5e5e5", type: "solid", width: 1.5 },
+            lineStyle: { color: hairline, type: "solid", width: 1.5 },
             data: [{ xAxis: 50 }, { yAxis: 50 }],
           },
         },
       ],
     };
   }, [data]);
+
 
   return (
     <Card className="p-4 border-hairline bg-paper rounded-3xl">

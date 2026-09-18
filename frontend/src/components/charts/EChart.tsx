@@ -11,6 +11,8 @@ import {
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { EChartsOption } from "echarts";
+import { getComputedToken } from "@/lib/chartTheme";
+
 
 // Register necessary modular ECharts components per frontend rule §5.8
 echarts.use([
@@ -66,12 +68,13 @@ export const EChart: React.FC<EChartProps> = ({
       if (loading) {
         chartInstance.current.showLoading("default", {
           text: "Loading...",
-          color: "#0a0a0a",
-          textColor: "#737373",
+          color: getComputedToken("--color-ink", "#0a0a0a"),
+          textColor: getComputedToken("--color-mid-gray", "#737373"),
           maskColor: "rgba(255, 255, 255, 0.8)",
           zlevel: 0,
         });
       } else {
+
         chartInstance.current.hideLoading();
       }
     }
