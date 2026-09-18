@@ -22,6 +22,7 @@
 
 1. **No Look-Ahead (Rule Q1):** Point-in-time calculation with data strictly $\le t$. SHP excludes $t$.
 2. **TRI Benchmarks (Rule Q5):** Nifty 50 TRI, Nifty Midcap 150 TRI, Nifty Smallcap 250 TRI, Nifty 500 TRI with identical dates.
+   > **Benchmark Source Disclosure (ADR 0009):** Evaluated against NSE-scraped TRI per ADR 0009 Option A; production uses Option B proxies, not re-validated against them.
 3. **Canonical Direct-Growth (Rule Q7):** IDCW excluded, 1 portfolio row per percentile (Rule Q8).
 4. **Execution Friction (Rule Q11):** 1-day execution lag, 0.005% stamp duty, 0.20% exit load reserve deducted.
 5. **Hold-out Touched Once (Rule Q14):** Logged permanently in this file and `experiments/registry.csv`.

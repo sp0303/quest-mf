@@ -1,6 +1,6 @@
 # 0009. Benchmark TRI Sourcing and Licensing Governance
 
-* **Status**: Proposed (Awaiting User Review / Decision per AGENTS.md §10)
+* **Status**: Accepted (Option B Approved for Production; Option A Designated Research-Only)
 * **Date**: 2026-09-19
 * **Deciders**: Engineering & Quant Team, Project Owner
 * **Consulted**: `docs/mf_quant_screener_spec_v2.md` §22, §31; `AGENTS.md` §10
@@ -81,7 +81,9 @@ This is an undocumented ASP.NET internal handler powering client-side UI widgets
 
 ---
 
-## 5. Next Actions
-
-- [ ] Obtain explicit user approval on the recommended path (Option A for staging, Option B for public UI).
-- [ ] If Option B is approved, add index proxy scheme code mappings to `category_benchmark_map`.
+## 5. Recorded Decision & Next Actions
+ 
+- [x] **Approved 2026-09-19**: Option B adopted as the canonical, production-ready benchmark pipeline.
+- [x] Option A (NSE scraping) isolated strictly for offline research / validation, barred from public endpoints.
+- [x] Disclosure added to `docs/results/HOLDOUT_EVALUATION_REPORT.md`.
+- [x] Index proxy scheme codes mapped and implemented in `backend/workers/benchmark_worker.py`.
