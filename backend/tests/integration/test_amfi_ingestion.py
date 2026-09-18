@@ -177,3 +177,90 @@ async def test_mfapi_proactive_rate_limiting(monkeypatch):
     assert wait_called is True, (
         "_mfapi_rate_limiter.wait() must be called proactively before every request"
     )
+
+
+# ---------------------------------------------------------------------------
+# Benchmark TRI & Rule Q5 Integration Tests
+# ---------------------------------------------------------------------------
+
+from datetime import date
+from workers.benchmark_worker import (
+    _nse_rate_limiter,
+    fetch_nifty_tri_series,
+    parse_nifty_date,
+)
+
+
+def test_nifty_date_parsing():
+    """Verify parsing of NSE date strings."""
+    assert parse_nifty_date("15 Jan 2024") == date(2024, 1, 15)
+    assert parse_nifty_date("01-Jan-2013") == date(2013, 1, 1)
+    assert parse_nifty_date("2026-09-17") == date(2026, 9, 17)
+    assert parse_nifty_date("invalid-date") is None
+
+
+@pytest.mark.asyncio
+async def test_rule_q5_benchmarks_are_tri():
+    """Rule Q5: All benchmark records must have is_tri = true."""
+    conn = await asyncpg.connect(settings.pg_dsn)
+    try:
+        rows = await conn.fetch("SELECT benchmark_id, code, is_tri FROM ref.benchmarks;")
+        assert len(rows) >= 4
+        for r in rows:
+            assert r["is_tri"] is True, f"Benchmark {r['code']} violated Rule Q5: is_tri must be true"
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_benchmark_values_multi_year_coverage():
+    """Verify market.benchmark_values contains authentic multi-year daily values."""
+    conn = await asyncpg.connect(settings.pg_dsn)
+    try:
+        stats = await conn.fetch("""
+            SELECT benchmark_id, count(*) as count, min(value_date) as min_date, max(value_date) as max_date
+            FROM market.benchmark_values
+            GROUP BY benchmark_id
+            ORDER BY benchmark_id;
+        """)
+        assert len(stats) >= 4
+        for s in stats:
+            assert s["count"] >= 3000, f"Benchmark {s['benchmark_id']} has insufficient rows: {s['count']}"
+            assert s["min_date"] <= date(2013, 1, 15), f"Benchmark {s['benchmark_id']} does not cover 2013"
+            assert s["max_date"] >= date(2026, 9, 1), f"Benchmark {s['benchmark_id']} is not current"
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_benchmark_history_tier1_mapping():
+    """Verify ref.benchmark_history maps portfolios to Tier-1 category benchmarks."""
+    conn = await asyncpg.connect(settings.pg_dsn)
+    try:
+        mapped_count = await conn.fetchval("SELECT count(*) FROM ref.benchmark_history WHERE tier = 1;")
+        assert mapped_count > 1000, f"Expected >1000 portfolios mapped, found {mapped_count}"
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_benchmark_worker_rate_limiter_pacing(monkeypatch):
+    """Verify benchmark worker proactively paces requests at <= 1 req/s."""
+    import httpx
+
+    wait_called = False
+
+    async def mock_wait():
+        nonlocal wait_called
+        wait_called = True
+
+    monkeypatch.setattr(_nse_rate_limiter, "wait", mock_wait)
+
+    async with httpx.AsyncClient() as client:
+        async def mock_post(*args, **kwargs):
+            return httpx.Response(200, json=[], content=b"[]")
+
+        monkeypatch.setattr(client, "post", mock_post)
+        await fetch_nifty_tri_series(client, "NIFTY 50", start_date="01-Jan-2024", end_date="15-Jan-2024")
+
+    assert wait_called is True

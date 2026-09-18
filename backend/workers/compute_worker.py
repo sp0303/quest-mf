@@ -18,8 +18,11 @@ from questmf_quant.returns import cagr, simple_return
 from questmf_quant.risk import (
     annualized_downside_deviation,
     annualized_volatility,
+    beta_and_alpha,
+    information_ratio,
     sharpe_ratio,
     sortino_ratio,
+    tracking_error,
 )
 from questmf_quant.scoring import (
     DEFAULT_BASELINE_MODEL,
@@ -60,6 +63,19 @@ async def run_compute_job() -> None:
             "SELECT MAX(nav_date) as max_d FROM market.nav_history;"
         )
         as_of_date: date = latest_date_row["max_d"] or date.today()
+
+        # 2b. Fetch benchmark history and portfolio benchmark mapping
+        bench_rows = await conn.fetch(
+            "SELECT benchmark_id, value_date, value FROM market.benchmark_values ORDER BY value_date ASC;"
+        )
+        bench_data: dict[int, dict[date, float]] = {}
+        for br in bench_rows:
+            bench_data.setdefault(br["benchmark_id"], {})[br["value_date"]] = float(br["value"])
+
+        bm_mappings = await conn.fetch(
+            "SELECT portfolio_id, benchmark_id FROM ref.benchmark_history WHERE tier = 1;"
+        )
+        portfolio_bench_map = {r["portfolio_id"]: r["benchmark_id"] for r in bm_mappings}
 
         fund_metrics: dict[int, dict] = {}
 
@@ -117,9 +133,38 @@ async def run_compute_job() -> None:
                 else 50.0
             )
 
-            # Mock benchmark excess (alpha) and IR for demo universe
-            alpha_3m = round(r_3m - 0.04, 4)
-            ir_3y = round((c_3y - 0.12) / max(vol, 0.05), 2)
+            # Rule Q5: Real benchmark TRI metrics with identical dates
+            bench_id = portfolio_bench_map.get(pid, 2)  # default to NIFTY 500 TRI (2)
+            bench_series = bench_data.get(bench_id, {})
+
+            aligned_nav = []
+            aligned_bench = []
+            for r in nav_rows:
+                d = r["nav_date"]
+                if d in bench_series:
+                    aligned_nav.append(float(r["nav"]))
+                    aligned_bench.append(bench_series[d])
+
+            if len(aligned_nav) >= 30:
+                f_rets = [(aligned_nav[i] / aligned_nav[i - 1]) - 1.0 for i in range(1, len(aligned_nav))]
+                b_rets = [(aligned_bench[i] / aligned_bench[i - 1]) - 1.0 for i in range(1, len(aligned_bench))]
+                beta, alpha = beta_and_alpha(f_rets, b_rets, periods_per_year=252, annual_rf=0.065)
+                te = tracking_error(f_rets, b_rets, periods_per_year=252)
+
+                if len(f_rets) >= 756:
+                    ir_3y = information_ratio(f_rets[-756:], b_rets[-756:], periods_per_year=252)
+                else:
+                    ir_3y = information_ratio(f_rets, b_rets, periods_per_year=252)
+
+                # 3M Alpha: identical start and end dates
+                if len(aligned_nav) >= 65:
+                    r_f_3m = (aligned_nav[-1] / aligned_nav[-65]) - 1.0
+                    r_b_3m = (aligned_bench[-1] / aligned_bench[-65]) - 1.0
+                    alpha_3m = r_f_3m - r_b_3m
+                else:
+                    alpha_3m = 0.0
+            else:
+                beta, alpha, te, ir_3y, alpha_3m = 1.0, 0.0, 0.0, 0.0, 0.0
 
             risk_payload = {
                 "volatility_ann": round(vol * 100, 2) if vol is not None else None,
@@ -130,7 +175,9 @@ async def run_compute_job() -> None:
                 "cagr_3y": round(c_3y * 100, 2) if c_3y is not None else None,
                 "observations": len(daily_returns),
                 "alpha_3m": round(alpha_3m * 100, 2) if alpha_3m is not None else None,
-                "ir_3y": ir_3y,
+                "ir_3y": round(ir_3y, 2) if ir_3y is not None else None,
+                "beta": round(beta, 2) if beta is not None else None,
+                "tracking_error": round(te * 100, 2) if te is not None else None,
             }
 
             # Upsert into analytics.fund_summary
@@ -159,7 +206,8 @@ async def run_compute_job() -> None:
                 "mdd": mdd,
                 "shp_3m": shp_3m,
                 "alpha_3m": alpha_3m,
-                "ir_3y": ir_3y,
+                "ir_3y": ir_3y if ir_3y is not None else 0.0,
+                "beta": beta,
                 "obs_count": len(daily_returns),
             }
 

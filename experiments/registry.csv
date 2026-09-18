@@ -1,0 +1,3 @@
+timestamp,experiment_id,period,h1_ic,h1_t,h2_ic,h2_t,h3_ic,h4_net_excess,h5_selection_share,verdict
+2026-09-18T18:46:22.501291,EXP_VALIDATION_H1_H5,2021-01-01 to 2023-12-31 (Validation Split),0.0402,0.18,0.2998,5.06,0.0184,3.87,89.8,PASSED
+2026-09-18T19:24:53.305212+00:00,EXP_HOLDOUT_Q14_EVALUATION,2024-01-01 to 2026-09-17 (Hold-Out Out-Of-Sample),0.0902,1.1,0.1049,1.06,-0.0198,-46.52,0.0,FAILED
