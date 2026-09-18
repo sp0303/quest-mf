@@ -17,25 +17,27 @@ from __future__ import annotations
 
 import asyncio
 import csv
-from datetime import date, datetime, timezone
 import json
 import logging
 import math
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 import asyncpg
 import numpy as np
-
-from app.config import settings
 from questmf_quant.backtest.stats import compute_rank_ic
 from questmf_quant.percentile import mid_rank_percentile, own_history_percentile
+
+from app.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("holdout_evaluator")
 
 
-def newey_west_hac_t_stat(series: list[float] | np.ndarray, max_lags: int = 2) -> tuple[float, float, float]:
+def newey_west_hac_t_stat(
+    series: list[float] | np.ndarray, max_lags: int = 2
+) -> tuple[float, float, float]:
     """Compute mean, HAC standard error, and HAC t-statistic with Bartlett kernel."""
     arr = np.asarray(series, dtype=np.float64)
     n = len(arr)
@@ -48,10 +50,10 @@ def newey_west_hac_t_stat(series: list[float] | np.ndarray, max_lags: int = 2) -
     gamma0 = float(np.dot(demeaned, demeaned) / n)
     hac_var = gamma0
 
-    for l in range(1, min(max_lags + 1, n)):
-        weight = 1.0 - (l / (max_lags + 1))
-        gamma_l = float(np.dot(demeaned[l:], demeaned[:-l]) / n)
-        hac_var += 2.0 * weight * gamma_l
+    for lag in range(1, min(max_lags + 1, n)):
+        weight = 1.0 - (lag / (max_lags + 1))
+        gamma_lag = float(np.dot(demeaned[lag:], demeaned[:-lag]) / n)
+        hac_var += 2.0 * weight * gamma_lag
 
     hac_se = math.sqrt(max(0.0, hac_var) / n)
     t_stat = (mean_val / hac_se) if hac_se > 0 else 0.0
@@ -75,12 +77,20 @@ async def run_holdout_evaluation() -> dict[str, Any]:
             JOIN ref.categories c ON ch.category_id = c.category_id
             WHERE s.is_canonical = true AND c.code NOT IN ('EQ_INDEX', 'EQ_ETF');
         """)
-        portfolio_cat_map = {r["portfolio_id"]: (r["category_id"], r["category_code"]) for r in schemes}
+        portfolio_cat_map = {
+            r["portfolio_id"]: (r["category_id"], r["category_code"]) for r in schemes
+        }
         scheme_to_pid = {r["scheme_code"]: r["portfolio_id"] for r in schemes}
-        logger.info("Loaded %d canonical equity schemes across %d portfolios.", len(schemes), len(portfolio_cat_map))
+        logger.info(
+            "Loaded %d canonical equity schemes across %d portfolios.",
+            len(schemes),
+            len(portfolio_cat_map),
+        )
 
         # 2. Fetch portfolio benchmark mapping
-        bm_mappings = await conn.fetch("SELECT portfolio_id, benchmark_id FROM ref.benchmark_history WHERE tier = 1;")
+        bm_mappings = await conn.fetch(
+            "SELECT portfolio_id, benchmark_id FROM ref.benchmark_history WHERE tier = 1;"
+        )
         portfolio_bench_map = {r["portfolio_id"]: r["benchmark_id"] for r in bm_mappings}
 
         # 3. Fetch benchmark TRI values
@@ -126,7 +136,9 @@ async def run_holdout_evaluation() -> dict[str, Any]:
                 if m_val != curr_m:
                     eval_dates.append(d)
                     curr_m = m_val
-        logger.info("Selected %d monthly decision dates across 2024-2026 hold-out period.", len(eval_dates))
+        logger.info(
+            "Selected %d monthly decision dates across 2024-2026 hold-out period.", len(eval_dates)
+        )
 
         h1_ics = []
         h2_ics = []
@@ -143,7 +155,6 @@ async def run_holdout_evaluation() -> dict[str, Any]:
             past_3m_idx = max(0, d_idx - 65)
             past_1y_idx = max(0, d_idx - 252)
             past_3m_d = trading_calendar[past_3m_idx]
-            past_1y_d = trading_calendar[past_1y_idx]
 
             active_pids = []
             for pid, nav_map in p_navs.items():
@@ -167,7 +178,11 @@ async def run_holdout_evaluation() -> dict[str, Any]:
                         h_prev = trading_calendar[hist_idx - 65]
                         if h_d in nav_map and h_prev in nav_map and nav_map[h_prev] > 0:
                             rolling_3m_history.append((nav_map[h_d] / nav_map[h_prev]) - 1.0)
-                shp_3m = own_history_percentile(ret_3m, rolling_3m_history) if len(rolling_3m_history) > 2 else 50.0
+                shp_3m = (
+                    own_history_percentile(ret_3m, rolling_3m_history)
+                    if len(rolling_3m_history) > 2
+                    else 50.0
+                )
 
                 # Persistence: rolling benchmark beat frequency over past 1Y
                 bench_id = portfolio_bench_map.get(pid, 2)
@@ -177,7 +192,12 @@ async def run_holdout_evaluation() -> dict[str, Any]:
                 for step_idx in range(past_1y_idx, d_idx, 15):
                     s_d = trading_calendar[step_idx]
                     s_prev = trading_calendar[max(0, step_idx - 65)]
-                    if s_d in nav_map and s_prev in nav_map and s_d in b_series and s_prev in b_series:
+                    if (
+                        s_d in nav_map
+                        and s_prev in nav_map
+                        and s_d in b_series
+                        and s_prev in b_series
+                    ):
                         f_r = (nav_map[s_d] / nav_map[s_prev]) - 1.0
                         b_r = (b_series[s_d] / b_series[s_prev]) - 1.0
                         if f_r > b_r:
@@ -206,15 +226,19 @@ async def run_holdout_evaluation() -> dict[str, Any]:
             for pid, f in d_features.items():
                 by_cat.setdefault(f["cat_id"], []).append(pid)
 
-            for cat_id, cat_pids in by_cat.items():
+            for _cat_id, cat_pids in by_cat.items():
                 if len(cat_pids) >= 8:
                     cat_rets = [d_features[p]["ret_3m"] for p in cat_pids]
                     cat_fwd_rets = [d_features[p]["fwd_ret_3m"] for p in cat_pids]
                     cat_avg_fwd = float(np.mean(cat_fwd_rets))
 
                     for p in cat_pids:
-                        d_features[p]["peer_pct_3m"] = mid_rank_percentile(d_features[p]["ret_3m"], cat_rets)
-                        d_features[p]["fwd_peer_rel_ret"] = d_features[p]["fwd_ret_3m"] - cat_avg_fwd
+                        d_features[p]["peer_pct_3m"] = mid_rank_percentile(
+                            d_features[p]["ret_3m"], cat_rets
+                        )
+                        d_features[p]["fwd_peer_rel_ret"] = (
+                            d_features[p]["fwd_ret_3m"] - cat_avg_fwd
+                        )
                 else:
                     for p in cat_pids:
                         d_features[p]["peer_pct_3m"] = None
@@ -224,7 +248,7 @@ async def run_holdout_evaluation() -> dict[str, Any]:
             h2_x, h2_y = [], []
             h3_x, h3_y = [], []
 
-            for pid, f in d_features.items():
+            for _pid, f in d_features.items():
                 if f["peer_pct_3m"] is not None and f["fwd_peer_rel_ret"] is not None:
                     h1_x.append(f["peer_pct_3m"])
                     h1_y.append(f["fwd_peer_rel_ret"])
@@ -264,12 +288,14 @@ async def run_holdout_evaluation() -> dict[str, Any]:
             top_quintile_returns.append(net_top_q_ret)
             basket_returns.append(basket_ret)
 
-            cat_weights_base = {cid: len(cpids)/len(scored_pids) for cid, cpids in by_cat.items()}
+            cat_weights_base = {cid: len(cpids) / len(scored_pids) for cid, cpids in by_cat.items()}
             within_excess = 0.0
             for cid, cpids in by_cat.items():
                 if len(cpids) >= 5:
                     cat_scored = [x for x in scored_pids if x[3] == cid]
-                    cat_top = float(np.mean([x[2] for x in cat_scored[:max(1, len(cat_scored)//5)]]))
+                    cat_top = float(
+                        np.mean([x[2] for x in cat_scored[: max(1, len(cat_scored) // 5)]])
+                    )
                     cat_all = float(np.mean([x[2] for x in cat_scored]))
                     within_excess += cat_weights_base[cid] * (cat_top - cat_all)
             within_category_alphas.append(within_excess)
@@ -284,7 +310,11 @@ async def run_holdout_evaluation() -> dict[str, Any]:
         h4_excess_mean = float(np.mean(top_arr - bask_arr))
         h4_excess_ann = h4_excess_mean * 4.0
         h4_hit_rate = float(np.mean((top_arr - bask_arr) > 0)) * 100.0
-        h4_t_stat = (h4_excess_mean / (float(np.std(top_arr - bask_arr, ddof=1)) / math.sqrt(len(top_arr)))) if len(top_arr) > 1 else 0.0
+        h4_t_stat = (
+            (h4_excess_mean / (float(np.std(top_arr - bask_arr, ddof=1)) / math.sqrt(len(top_arr))))
+            if len(top_arr) > 1
+            else 0.0
+        )
 
         mean_within = float(np.mean(within_category_alphas)) * 4.0
         h5_selection_share = (mean_within / h4_excess_ann * 100.0) if h4_excess_ann > 0 else 0.0
@@ -296,30 +326,40 @@ async def run_holdout_evaluation() -> dict[str, Any]:
                 "mean_rank_ic": round(h1_mean, 4),
                 "hac_se": round(h1_se, 4),
                 "hac_t_stat": round(h1_t, 2),
-                "status": "CONFIRMED" if h1_mean > 0 else "REJECTED",
+                "status": "CONFIRMED"
+                if h1_mean > 0 and h1_t > 1.96
+                else ("PARTIAL" if h1_mean > 0 else "REJECTED"),
             },
             "H2_persistence": {
                 "mean_rank_ic": round(h2_mean, 4),
                 "hac_se": round(h2_se, 4),
                 "hac_t_stat": round(h2_t, 2),
-                "status": "CONFIRMED" if h2_mean > 0 and h2_t > 1.96 else "PARTIAL",
+                "status": "CONFIRMED"
+                if h2_mean > 0 and h2_t > 1.96
+                else ("PARTIAL" if h2_mean > 0 else "REJECTED"),
             },
             "H3_shp_reversion": {
                 "mean_rank_ic": round(h3_mean, 4),
                 "hac_se": round(h3_se, 4),
                 "hac_t_stat": round(h3_t, 2),
-                "status": "CONFIRMED_REVERSION" if h3_mean < 0 else "ORTHOGONAL",
+                "status": "CONFIRMED_REVERSION"
+                if h3_mean < 0 and h3_t < -1.96
+                else ("PARTIAL_REVERSION" if h3_mean < 0 else "ORTHOGONAL"),
             },
             "H4_net_alpha": {
                 "net_excess_ann_pct": round(h4_excess_ann * 100.0, 2),
                 "quarterly_hit_rate_pct": round(h4_hit_rate, 1),
                 "t_stat": round(h4_t_stat, 2),
-                "status": "CONFIRMED_ALPHA" if h4_excess_ann > 0 else "NO_ALPHA",
+                "status": "CONFIRMED_ALPHA"
+                if h4_excess_ann > 0 and h4_hit_rate > 50 and h4_t_stat > 1.96
+                else ("PARTIAL" if h4_excess_ann > 0 else "NO_ALPHA"),
             },
             "H5_decomposition": {
                 "within_category_excess_ann_pct": round(mean_within * 100.0, 2),
                 "selection_share_pct": round(h5_selection_share, 1),
-                "status": "CONFIRMED_SELECTION" if mean_within > 0 and h5_selection_share >= 70.0 else "PARTIAL",
+                "status": "CONFIRMED_SELECTION"
+                if mean_within > 0 and h5_selection_share >= 70.0
+                else "PARTIAL",
             },
         }
 
@@ -331,23 +371,36 @@ async def run_holdout_evaluation() -> dict[str, Any]:
         with open(registry_path, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if is_new:
-                writer.writerow([
-                    "timestamp", "experiment_id", "period", "h1_ic", "h1_t",
-                    "h2_ic", "h2_t", "h3_ic", "h4_net_excess", "h5_selection_share", "verdict"
-                ])
-            writer.writerow([
-                datetime.now(timezone.utc).isoformat(),
-                "EXP_HOLDOUT_Q14_EVALUATION",
-                results["period"],
-                results["H1_momentum"]["mean_rank_ic"],
-                results["H1_momentum"]["hac_t_stat"],
-                results["H2_persistence"]["mean_rank_ic"],
-                results["H2_persistence"]["hac_t_stat"],
-                results["H3_shp_reversion"]["mean_rank_ic"],
-                results["H4_net_alpha"]["net_excess_ann_pct"],
-                results["H5_decomposition"]["selection_share_pct"],
-                "PASSED" if results["H4_net_alpha"]["net_excess_ann_pct"] > 0 else "FAILED",
-            ])
+                writer.writerow(
+                    [
+                        "timestamp",
+                        "experiment_id",
+                        "period",
+                        "h1_ic",
+                        "h1_t",
+                        "h2_ic",
+                        "h2_t",
+                        "h3_ic",
+                        "h4_net_excess",
+                        "h5_selection_share",
+                        "verdict",
+                    ]
+                )
+            writer.writerow(
+                [
+                    datetime.now(UTC).isoformat(),
+                    "EXP_HOLDOUT_Q14_EVALUATION",
+                    results["period"],
+                    results["H1_momentum"]["mean_rank_ic"],
+                    results["H1_momentum"]["hac_t_stat"],
+                    results["H2_persistence"]["mean_rank_ic"],
+                    results["H2_persistence"]["hac_t_stat"],
+                    results["H3_shp_reversion"]["mean_rank_ic"],
+                    results["H4_net_alpha"]["net_excess_ann_pct"],
+                    results["H5_decomposition"]["selection_share_pct"],
+                    "PASSED" if results["H4_net_alpha"]["net_excess_ann_pct"] > 0 else "FAILED",
+                ]
+            )
         logger.info("Appended hold-out result to experiments/registry.csv (Rule Q15).")
 
         # Rule Q14: Write report to docs/results/HOLDOUT_EVALUATION_REPORT.md
@@ -356,7 +409,7 @@ async def run_holdout_evaluation() -> dict[str, Any]:
         report_file = results_dir / "HOLDOUT_EVALUATION_REPORT.md"
         report_content = f"""# Out-of-Sample Hold-Out Evaluation Report (Rule Q14)
 
-**Evaluation Timestamp:** {datetime.now(timezone.utc).isoformat()}  
+**Evaluation Timestamp:** {datetime.now(UTC).isoformat()}  
 **Evaluation Window:** 2024-01-01 to 2026-09-17 (Hold-Out Period)  
 **Rule Q14 Adherence:** Touched strictly once after model parameters frozen.  
 
@@ -366,24 +419,26 @@ async def run_holdout_evaluation() -> dict[str, Any]:
 
 | Hypothesis | Factor / Metric | Out-of-Sample Result | Statistical Significance | Verdict |
 |---|---|---|---|---|
-| **H1** | Peer-relative 3M Momentum | Mean Rank IC: `{results['H1_momentum']['mean_rank_ic']:+0.4f}` | HAC t-stat: `{results['H1_momentum']['hac_t_stat']}` | **{results['H1_momentum']['status']}** |
-| **H2** | Benchmark-Beat Persistence | Mean Rank IC: `{results['H2_persistence']['mean_rank_ic']:+0.4f}` | HAC t-stat: `{results['H2_persistence']['hac_t_stat']}` | **{results['H2_persistence']['status']}** |
-| **H3** | Own-History SHP Reversion | Mean Rank IC: `{results['H3_shp_reversion']['mean_rank_ic']:+0.4f}` | HAC t-stat: `{results['H3_shp_reversion']['hac_t_stat']}` | **{results['H3_shp_reversion']['status']}** |
-| **H4** | Net Excess vs Category Basket | Net Alpha: `{results['H4_net_alpha']['net_excess_ann_pct']:+0.2f}%` p.a. | Hit Rate: `{results['H4_net_alpha']['quarterly_hit_rate_pct']}%` | **{results['H4_net_alpha']['status']}** |
-| **H5** | Fund Selection vs Timing | Selection Share: `{results['H5_decomposition']['selection_share_pct']}%` | Within Alpha: `{results['H5_decomposition']['within_category_excess_ann_pct']:+0.2f}%` | **{results['H5_decomposition']['status']}** |
+| **H1** | Peer-relative 3M Momentum | Mean Rank IC: `{results["H1_momentum"]["mean_rank_ic"]:+0.4f}` | HAC t-stat: `{results["H1_momentum"]["hac_t_stat"]}` | **{results["H1_momentum"]["status"]}** |
+| **H2** | Benchmark-Beat Persistence | Mean Rank IC: `{results["H2_persistence"]["mean_rank_ic"]:+0.4f}` | HAC t-stat: `{results["H2_persistence"]["hac_t_stat"]}` | **{results["H2_persistence"]["status"]}** |
+| **H3** | Own-History SHP Reversion | Mean Rank IC: `{results["H3_shp_reversion"]["mean_rank_ic"]:+0.4f}` | HAC t-stat: `{results["H3_shp_reversion"]["hac_t_stat"]}` | **{results["H3_shp_reversion"]["status"]}** |
+| **H4** | Net Excess vs Category Basket | Net Alpha: `{results["H4_net_alpha"]["net_excess_ann_pct"]:+0.2f}%` p.a. | Hit Rate: `{results["H4_net_alpha"]["quarterly_hit_rate_pct"]}%` | **{results["H4_net_alpha"]["status"]}** |
+| **H5** | Fund Selection vs Timing | Selection Share: `{results["H5_decomposition"]["selection_share_pct"]}%` | Within Alpha: `{results["H5_decomposition"]["within_category_excess_ann_pct"]:+0.2f}%` | **{results["H5_decomposition"]["status"]}** |
 
 ---
 
 ## 2. Quant Methodology & Falsification Rules Honored
 
-1. **No Look-Ahead (Rule Q1):** Point-in-time calculation with data strictly $\le t$. SHP excludes $t$.
+1. **No Look-Ahead (Rule Q1):** Point-in-time calculation with data strictly $\\le t$. SHP excludes $t$.
 2. **TRI Benchmarks (Rule Q5):** Nifty 50 TRI, Nifty Midcap 150 TRI, Nifty Smallcap 250 TRI, Nifty 500 TRI with identical dates.
 3. **Canonical Direct-Growth (Rule Q7):** IDCW excluded, 1 portfolio row per percentile (Rule Q8).
 4. **Execution Friction (Rule Q11):** 1-day execution lag, 0.005% stamp duty, 0.20% exit load reserve deducted.
 5. **Hold-out Touched Once (Rule Q14):** Logged permanently in this file and `experiments/registry.csv`.
 """
         report_file.write_text(report_content, encoding="utf-8")
-        logger.info("Saved hold-out report to docs/results/HOLDOUT_EVALUATION_REPORT.md (Rule Q14).")
+        logger.info(
+            "Saved hold-out report to docs/results/HOLDOUT_EVALUATION_REPORT.md (Rule Q14)."
+        )
 
         print("=" * 70)
         print("PHASE 8 FINAL HOLDOUT RESULTS")

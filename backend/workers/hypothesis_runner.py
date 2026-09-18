@@ -20,27 +20,27 @@ from __future__ import annotations
 
 import asyncio
 import csv
-from datetime import date, datetime
 import json
 import logging
 import math
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 import asyncpg
 import numpy as np
-from scipy.stats import spearmanr
-
-from app.config import settings
 from questmf_quant.backtest.stats import compute_rank_ic
 from questmf_quant.percentile import mid_rank_percentile, own_history_percentile
-from questmf_quant.scoring import DEFAULT_BASELINE_MODEL, compute_composite_score
+
+from app.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("hypothesis_runner")
 
 
-def newey_west_hac_t_stat(series: list[float] | np.ndarray, max_lags: int = 2) -> tuple[float, float, float]:
+def newey_west_hac_t_stat(
+    series: list[float] | np.ndarray, max_lags: int = 2
+) -> tuple[float, float, float]:
     """Compute mean, HAC standard error, and HAC t-statistic with Bartlett kernel."""
     arr = np.asarray(series, dtype=np.float64)
     n = len(arr)
@@ -53,10 +53,10 @@ def newey_west_hac_t_stat(series: list[float] | np.ndarray, max_lags: int = 2) -
     gamma0 = float(np.dot(demeaned, demeaned) / n)
     hac_var = gamma0
 
-    for l in range(1, min(max_lags + 1, n)):
-        weight = 1.0 - (l / (max_lags + 1))
-        gamma_l = float(np.dot(demeaned[l:], demeaned[:-l]) / n)
-        hac_var += 2.0 * weight * gamma_l
+    for lag in range(1, min(max_lags + 1, n)):
+        weight = 1.0 - (lag / (max_lags + 1))
+        gamma_lag = float(np.dot(demeaned[lag:], demeaned[:-lag]) / n)
+        hac_var += 2.0 * weight * gamma_lag
 
     hac_se = math.sqrt(max(0.0, hac_var) / n)
     t_stat = (mean_val / hac_se) if hac_se > 0 else 0.0
@@ -65,7 +65,9 @@ def newey_west_hac_t_stat(series: list[float] | np.ndarray, max_lags: int = 2) -
 
 async def run_hypothesis_evaluation() -> dict[str, Any]:
     logger.info("Starting Phase 6 Empirical Hypothesis Testing (H1-H5)...")
-    logger.info("Evaluation window: Validation Period 2021-01-01 to 2023-12-31 (Rule Q14 preserved).")
+    logger.info(
+        "Evaluation window: Validation Period 2021-01-01 to 2023-12-31 (Rule Q14 preserved)."
+    )
 
     conn = await asyncpg.connect(settings.pg_dsn)
     try:
@@ -78,12 +80,20 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
             JOIN ref.categories c ON ch.category_id = c.category_id
             WHERE s.is_canonical = true AND c.code NOT IN ('EQ_INDEX', 'EQ_ETF');
         """)
-        portfolio_cat_map = {r["portfolio_id"]: (r["category_id"], r["category_code"]) for r in schemes}
+        portfolio_cat_map = {
+            r["portfolio_id"]: (r["category_id"], r["category_code"]) for r in schemes
+        }
         scheme_to_pid = {r["scheme_code"]: r["portfolio_id"] for r in schemes}
-        logger.info("Loaded %d canonical equity schemes across %d unique portfolios.", len(schemes), len(portfolio_cat_map))
+        logger.info(
+            "Loaded %d canonical equity schemes across %d unique portfolios.",
+            len(schemes),
+            len(portfolio_cat_map),
+        )
 
         # 2. Fetch portfolio benchmark mapping
-        bm_mappings = await conn.fetch("SELECT portfolio_id, benchmark_id FROM ref.benchmark_history WHERE tier = 1;")
+        bm_mappings = await conn.fetch(
+            "SELECT portfolio_id, benchmark_id FROM ref.benchmark_history WHERE tier = 1;"
+        )
         portfolio_bench_map = {r["portfolio_id"]: r["benchmark_id"] for r in bm_mappings}
 
         # 3. Fetch benchmark TRI values
@@ -104,7 +114,7 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
             WHERE s.is_canonical = true AND n.nav_date >= '2019-01-01' AND n.nav_date <= '2024-04-01'
             ORDER BY n.nav_date ASC;
         """)
-        
+
         # Portfolio NAV series: pid -> dict[date, float]
         p_navs: dict[int, dict[date, float]] = {}
         for nr in nav_rows:
@@ -131,7 +141,10 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
                 if m_val != curr_m:
                     eval_dates.append(d)
                     curr_m = m_val
-        logger.info("Selected %d monthly decision dates across 2021-2023 validation period.", len(eval_dates))
+        logger.info(
+            "Selected %d monthly decision dates across 2021-2023 validation period.",
+            len(eval_dates),
+        )
 
         # -------------------------------------------------------------------
         # H1, H2, H3: Monthly Cross-Sectional Factor Evaluation & Rank IC
@@ -139,12 +152,11 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
         h1_ics = []  # Peer-relative 3M momentum vs forward 3M peer-relative return
         h2_ics = []  # Benchmark-beat persistence vs forward 3M active return
         h3_ics = []  # SHP vs forward 3M return (test for mean-reversion)
-        
+
         # H4 & H5 tracking
         top_quintile_returns = []
         basket_returns = []
         within_category_alphas = []
-        cross_category_alphas = []
 
         for d in eval_dates:
             d_idx = date_to_idx[d]
@@ -155,7 +167,6 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
             past_3m_idx = max(0, d_idx - 65)
             past_1y_idx = max(0, d_idx - 252)
             past_3m_d = trading_calendar[past_3m_idx]
-            past_1y_d = trading_calendar[past_1y_idx]
 
             # Group eligible funds by category at date d
             active_pids = []
@@ -181,7 +192,11 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
                         h_prev = trading_calendar[hist_idx - 65]
                         if h_d in nav_map and h_prev in nav_map and nav_map[h_prev] > 0:
                             rolling_3m_history.append((nav_map[h_d] / nav_map[h_prev]) - 1.0)
-                shp_3m = own_history_percentile(ret_3m, rolling_3m_history) if len(rolling_3m_history) > 2 else 50.0
+                shp_3m = (
+                    own_history_percentile(ret_3m, rolling_3m_history)
+                    if len(rolling_3m_history) > 2
+                    else 50.0
+                )
 
                 # Persistence: rolling benchmark beat frequency over past 1Y
                 bench_id = portfolio_bench_map.get(pid, 2)
@@ -191,7 +206,12 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
                 for step_idx in range(past_1y_idx, d_idx, 15):
                     s_d = trading_calendar[step_idx]
                     s_prev = trading_calendar[max(0, step_idx - 65)]
-                    if s_d in nav_map and s_prev in nav_map and s_d in b_series and s_prev in b_series:
+                    if (
+                        s_d in nav_map
+                        and s_prev in nav_map
+                        and s_d in b_series
+                        and s_prev in b_series
+                    ):
                         f_r = (nav_map[s_d] / nav_map[s_prev]) - 1.0
                         b_r = (b_series[s_d] / b_series[s_prev]) - 1.0
                         if f_r > b_r:
@@ -221,15 +241,19 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
             for pid, f in d_features.items():
                 by_cat.setdefault(f["cat_id"], []).append(pid)
 
-            for cat_id, cat_pids in by_cat.items():
+            for _cat_id, cat_pids in by_cat.items():
                 if len(cat_pids) >= 8:
                     cat_rets = [d_features[p]["ret_3m"] for p in cat_pids]
                     cat_fwd_rets = [d_features[p]["fwd_ret_3m"] for p in cat_pids]
                     cat_avg_fwd = float(np.mean(cat_fwd_rets))
 
                     for p in cat_pids:
-                        d_features[p]["peer_pct_3m"] = mid_rank_percentile(d_features[p]["ret_3m"], cat_rets)
-                        d_features[p]["fwd_peer_rel_ret"] = d_features[p]["fwd_ret_3m"] - cat_avg_fwd
+                        d_features[p]["peer_pct_3m"] = mid_rank_percentile(
+                            d_features[p]["ret_3m"], cat_rets
+                        )
+                        d_features[p]["fwd_peer_rel_ret"] = (
+                            d_features[p]["fwd_ret_3m"] - cat_avg_fwd
+                        )
                 else:
                     for p in cat_pids:
                         d_features[p]["peer_pct_3m"] = None
@@ -240,7 +264,7 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
             h2_x, h2_y = [], []
             h3_x, h3_y = [], []
 
-            for pid, f in d_features.items():
+            for _pid, f in d_features.items():
                 if f["peer_pct_3m"] is not None and f["fwd_peer_rel_ret"] is not None:
                     h1_x.append(f["peer_pct_3m"])
                     h1_y.append(f["fwd_peer_rel_ret"])
@@ -285,12 +309,14 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
             basket_returns.append(basket_ret)
 
             # Brinson decomposition: Within-category selection vs Category timing (H5)
-            cat_weights_base = {cid: len(cpids)/len(scored_pids) for cid, cpids in by_cat.items()}
+            cat_weights_base = {cid: len(cpids) / len(scored_pids) for cid, cpids in by_cat.items()}
             within_excess = 0.0
             for cid, cpids in by_cat.items():
                 if len(cpids) >= 5:
                     cat_scored = [x for x in scored_pids if x[3] == cid]
-                    cat_top = float(np.mean([x[2] for x in cat_scored[:max(1, len(cat_scored)//5)]]))
+                    cat_top = float(
+                        np.mean([x[2] for x in cat_scored[: max(1, len(cat_scored) // 5)]])
+                    )
                     cat_all = float(np.mean([x[2] for x in cat_scored]))
                     within_excess += cat_weights_base[cid] * (cat_top - cat_all)
             within_category_alphas.append(within_excess)
@@ -308,7 +334,11 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
         h4_excess_mean = float(np.mean(top_arr - bask_arr))
         h4_excess_ann = h4_excess_mean * 4.0  # quarterly to annualized
         h4_hit_rate = float(np.mean((top_arr - bask_arr) > 0)) * 100.0
-        h4_t_stat = (h4_excess_mean / (float(np.std(top_arr - bask_arr, ddof=1)) / math.sqrt(len(top_arr)))) if len(top_arr) > 1 else 0.0
+        h4_t_stat = (
+            (h4_excess_mean / (float(np.std(top_arr - bask_arr, ddof=1)) / math.sqrt(len(top_arr))))
+            if len(top_arr) > 1
+            else 0.0
+        )
 
         # H5: Within-category share
         mean_within = float(np.mean(within_category_alphas)) * 4.0
@@ -322,14 +352,18 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
                 "mean_rank_ic": round(h1_mean, 4),
                 "hac_se": round(h1_se, 4),
                 "hac_t_stat": round(h1_t, 2),
-                "verdict": "CONFIRMED" if h1_mean > 0 and h1_t > 1.96 else ("PARTIAL" if h1_mean > 0 else "REJECTED"),
+                "verdict": "CONFIRMED"
+                if h1_mean > 0 and h1_t > 1.96
+                else ("PARTIAL" if h1_mean > 0 else "REJECTED"),
             },
             "H2": {
                 "hypothesis": "Persistence (benchmark beat %) predicts next-3M active return",
                 "mean_rank_ic": round(h2_mean, 4),
                 "hac_se": round(h2_se, 4),
                 "hac_t_stat": round(h2_t, 2),
-                "verdict": "CONFIRMED" if h2_mean > 0 and h2_t > 1.96 else ("PARTIAL" if h2_mean > 0 else "REJECTED"),
+                "verdict": "CONFIRMED"
+                if h2_mean > 0 and h2_t > 1.96
+                else ("PARTIAL" if h2_mean > 0 else "REJECTED"),
             },
             "H3": {
                 "hypothesis": "High SHP predicts lower subsequent return (mean reversion)",
@@ -349,7 +383,9 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
                 "hypothesis": "Edge comes from within-category fund selection, not category timing",
                 "within_category_excess_ann_pct": round(mean_within * 100.0, 2),
                 "selection_share_pct": round(h5_selection_share, 1),
-                "verdict": "CONFIRMED" if mean_within > 0 and h5_selection_share >= 70.0 else "PARTIAL",
+                "verdict": "CONFIRMED"
+                if mean_within > 0 and h5_selection_share >= 70.0
+                else "PARTIAL",
             },
         }
 
@@ -361,23 +397,36 @@ async def run_hypothesis_evaluation() -> dict[str, Any]:
         with open(registry_path, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             if is_new:
-                writer.writerow([
-                    "timestamp", "experiment_id", "period", "h1_ic", "h1_t",
-                    "h2_ic", "h2_t", "h3_ic", "h4_net_excess", "h5_selection_share", "verdict"
-                ])
-            writer.writerow([
-                datetime.utcnow().isoformat(),
-                "EXP_VALIDATION_H1_H5",
-                results["evaluation_period"],
-                results["H1"]["mean_rank_ic"],
-                results["H1"]["hac_t_stat"],
-                results["H2"]["mean_rank_ic"],
-                results["H2"]["hac_t_stat"],
-                results["H3"]["mean_rank_ic"],
-                results["H4"]["net_excess_ann_pct"],
-                results["H5"]["selection_share_pct"],
-                "PASSED" if results["H4"]["net_excess_ann_pct"] > 0 else "FAILED",
-            ])
+                writer.writerow(
+                    [
+                        "timestamp",
+                        "experiment_id",
+                        "period",
+                        "h1_ic",
+                        "h1_t",
+                        "h2_ic",
+                        "h2_t",
+                        "h3_ic",
+                        "h4_net_excess",
+                        "h5_selection_share",
+                        "verdict",
+                    ]
+                )
+            writer.writerow(
+                [
+                    datetime.utcnow().isoformat(),
+                    "EXP_VALIDATION_H1_H5",
+                    results["evaluation_period"],
+                    results["H1"]["mean_rank_ic"],
+                    results["H1"]["hac_t_stat"],
+                    results["H2"]["mean_rank_ic"],
+                    results["H2"]["hac_t_stat"],
+                    results["H3"]["mean_rank_ic"],
+                    results["H4"]["net_excess_ann_pct"],
+                    results["H5"]["selection_share_pct"],
+                    "PASSED" if results["H4"]["net_excess_ann_pct"] > 0 else "FAILED",
+                ]
+            )
         logger.info("Appended experiment result to experiments/registry.csv (Rule Q15).")
 
         print("=" * 70)

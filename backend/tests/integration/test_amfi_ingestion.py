@@ -6,10 +6,17 @@ Phase 1 Exit Criteria:
 - Rule Q7 & Test L: IDCW cannot be canonical; only Direct-Growth allowed.
 """
 
+from datetime import date
+
 import asyncpg
 import pytest
 
 from app.config import settings
+from workers.benchmark_worker import (
+    _nse_rate_limiter,
+    fetch_nifty_tri_series,
+    parse_nifty_date,
+)
 from workers.ingestion_worker import (
     AsyncRateLimiter,
     _mfapi_rate_limiter,
@@ -183,13 +190,6 @@ async def test_mfapi_proactive_rate_limiting(monkeypatch):
 # Benchmark TRI & Rule Q5 Integration Tests
 # ---------------------------------------------------------------------------
 
-from datetime import date
-from workers.benchmark_worker import (
-    _nse_rate_limiter,
-    fetch_nifty_tri_series,
-    parse_nifty_date,
-)
-
 
 def test_nifty_date_parsing():
     """Verify parsing of NSE date strings."""
@@ -207,7 +207,9 @@ async def test_rule_q5_benchmarks_are_tri():
         rows = await conn.fetch("SELECT benchmark_id, code, is_tri FROM ref.benchmarks;")
         assert len(rows) >= 4
         for r in rows:
-            assert r["is_tri"] is True, f"Benchmark {r['code']} violated Rule Q5: is_tri must be true"
+            assert r["is_tri"] is True, (
+                f"Benchmark {r['code']} violated Rule Q5: is_tri must be true"
+            )
     finally:
         await conn.close()
 
@@ -225,9 +227,15 @@ async def test_benchmark_values_multi_year_coverage():
         """)
         assert len(stats) >= 4
         for s in stats:
-            assert s["count"] >= 3000, f"Benchmark {s['benchmark_id']} has insufficient rows: {s['count']}"
-            assert s["min_date"] <= date(2013, 1, 15), f"Benchmark {s['benchmark_id']} does not cover 2013"
-            assert s["max_date"] >= date(2026, 9, 1), f"Benchmark {s['benchmark_id']} is not current"
+            assert s["count"] >= 3000, (
+                f"Benchmark {s['benchmark_id']} has insufficient rows: {s['count']}"
+            )
+            assert s["min_date"] <= date(2013, 1, 15), (
+                f"Benchmark {s['benchmark_id']} does not cover 2013"
+            )
+            assert s["max_date"] >= date(2026, 9, 1), (
+                f"Benchmark {s['benchmark_id']} is not current"
+            )
     finally:
         await conn.close()
 
@@ -237,7 +245,9 @@ async def test_benchmark_history_tier1_mapping():
     """Verify ref.benchmark_history maps portfolios to Tier-1 category benchmarks."""
     conn = await asyncpg.connect(settings.pg_dsn)
     try:
-        mapped_count = await conn.fetchval("SELECT count(*) FROM ref.benchmark_history WHERE tier = 1;")
+        mapped_count = await conn.fetchval(
+            "SELECT count(*) FROM ref.benchmark_history WHERE tier = 1;"
+        )
         assert mapped_count > 1000, f"Expected >1000 portfolios mapped, found {mapped_count}"
     finally:
         await conn.close()
@@ -257,10 +267,13 @@ async def test_benchmark_worker_rate_limiter_pacing(monkeypatch):
     monkeypatch.setattr(_nse_rate_limiter, "wait", mock_wait)
 
     async with httpx.AsyncClient() as client:
+
         async def mock_post(*args, **kwargs):
             return httpx.Response(200, json=[], content=b"[]")
 
         monkeypatch.setattr(client, "post", mock_post)
-        await fetch_nifty_tri_series(client, "NIFTY 50", start_date="01-Jan-2024", end_date="15-Jan-2024")
+        await fetch_nifty_tri_series(
+            client, "NIFTY 50", start_date="01-Jan-2024", end_date="15-Jan-2024"
+        )
 
     assert wait_called is True

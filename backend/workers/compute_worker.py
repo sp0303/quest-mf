@@ -146,8 +146,13 @@ async def run_compute_job() -> None:
                     aligned_bench.append(bench_series[d])
 
             if len(aligned_nav) >= 30:
-                f_rets = [(aligned_nav[i] / aligned_nav[i - 1]) - 1.0 for i in range(1, len(aligned_nav))]
-                b_rets = [(aligned_bench[i] / aligned_bench[i - 1]) - 1.0 for i in range(1, len(aligned_bench))]
+                f_rets = [
+                    (aligned_nav[i] / aligned_nav[i - 1]) - 1.0 for i in range(1, len(aligned_nav))
+                ]
+                b_rets = [
+                    (aligned_bench[i] / aligned_bench[i - 1]) - 1.0
+                    for i in range(1, len(aligned_bench))
+                ]
                 beta, alpha = beta_and_alpha(f_rets, b_rets, periods_per_year=252, annual_rf=0.065)
                 te = tracking_error(f_rets, b_rets, periods_per_year=252)
 
@@ -164,7 +169,7 @@ async def run_compute_job() -> None:
                 else:
                     alpha_3m = 0.0
             else:
-                beta, alpha, te, ir_3y, alpha_3m = 1.0, 0.0, 0.0, 0.0, 0.0
+                beta, _alpha, te, ir_3y, alpha_3m = 1.0, 0.0, 0.0, 0.0, 0.0
 
             risk_payload = {
                 "volatility_ann": round(vol * 100, 2) if vol is not None else None,

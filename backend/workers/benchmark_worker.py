@@ -14,11 +14,9 @@ Adheres strictly to Rule Q5 (Benchmarks are TRI).
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime
-import hashlib
 import json
 import logging
-from pathlib import Path
+from datetime import date, datetime
 from typing import Any
 
 import asyncpg
@@ -73,7 +71,11 @@ async def fetch_nifty_tri_series(
         resp = await client.post(NIFTY_INDICES_URL, headers=headers, content=payload)
         if resp.status_code == 200:
             raw_bytes = resp.content
-            store_raw_payload("benchmarks", raw_bytes, f"{index_name.replace(' ', '_')}_{date.today().isoformat()}.json")
+            store_raw_payload(
+                "benchmarks",
+                raw_bytes,
+                f"{index_name.replace(' ', '_')}_{date.today().isoformat()}.json",
+            )
             data = resp.json()
             if isinstance(data, list):
                 return data
@@ -104,7 +106,7 @@ async def ingest_benchmark_tri_history() -> dict[str, Any]:
     conn = await asyncpg.connect(settings.pg_dsn)
     try:
         # Ensure benchmarks exist in ref.benchmarks
-        for code, (bid, idx_name, label) in BENCHMARKS.items():
+        for code, (bid, _idx_name, label) in BENCHMARKS.items():
             await conn.execute(
                 """
                 INSERT INTO ref.benchmarks (benchmark_id, code, label, provider, is_tri)
@@ -123,9 +125,13 @@ async def ingest_benchmark_tri_history() -> dict[str, Any]:
         total_ingested = 0
         summary = {}
 
-        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True, verify=True, headers=client_headers) as client:
+        async with httpx.AsyncClient(
+            timeout=45.0, follow_redirects=True, verify=True, headers=client_headers
+        ) as client:
             for code, (bid, idx_name, label) in BENCHMARKS.items():
-                logger.info("Fetching authentic TRI series for %s (%s) from 01-Jan-2013...", label, idx_name)
+                logger.info(
+                    "Fetching authentic TRI series for %s (%s) from 01-Jan-2013...", label, idx_name
+                )
                 points = await fetch_nifty_tri_series(client, idx_name, start_date="01-Jan-2013")
                 logger.info("Retrieved %d daily points for %s.", len(points), label)
 

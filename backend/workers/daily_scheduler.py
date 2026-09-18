@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime, time, timedelta, timezone
 import logging
+from datetime import UTC, datetime, time, timedelta, timezone
 from typing import Any
 
 from workers.benchmark_worker import ingest_benchmark_tri_history
@@ -35,7 +35,7 @@ TARGET_RUN_TIME = time(hour=23, minute=30, second=0)
 
 async def run_nightly_pipeline() -> dict[str, Any]:
     """Execute the end-to-end nightly ingestion and quant compute pipeline."""
-    start_time = datetime.now(timezone.utc)
+    start_time = datetime.now(UTC)
     logger.info("=" * 70)
     logger.info("STARTING NIGHTLY DATA & QUANT PIPELINE [%s]", start_time.isoformat())
     logger.info("=" * 70)
@@ -68,7 +68,9 @@ async def run_nightly_pipeline() -> dict[str, Any]:
 
     # Step 3: Run Quant Analytics & Scoring Precomputation
     try:
-        logger.info("[Step 3/3] Precomputing rolling metrics, Alpha, Beta, IR, SHP, and screener snapshots...")
+        logger.info(
+            "[Step 3/3] Precomputing rolling metrics, Alpha, Beta, IR, SHP, and screener snapshots..."
+        )
         await run_compute_job()
         logger.info("Quant compute job completed successfully.")
     except Exception as e:
@@ -77,7 +79,7 @@ async def run_nightly_pipeline() -> dict[str, Any]:
         results["error"] = str(e)
         return results
 
-    end_time = datetime.now(timezone.utc)
+    end_time = datetime.now(UTC)
     elapsed = (end_time - start_time).total_seconds()
     results["completed_at"] = end_time.isoformat()
     results["elapsed_seconds"] = round(elapsed, 2)
@@ -105,15 +107,25 @@ async def run_daemon_loop() -> None:
     while True:
         wait_secs = seconds_until_next_run()
         next_run_ist = datetime.now(IST) + timedelta(seconds=wait_secs)
-        logger.info("Next nightly run scheduled for: %s IST (%0.1f hours from now)", next_run_ist.strftime("%Y-%m-%d %H:%M:%S"), wait_secs / 3600.0)
+        logger.info(
+            "Next nightly run scheduled for: %s IST (%0.1f hours from now)",
+            next_run_ist.strftime("%Y-%m-%d %H:%M:%S"),
+            wait_secs / 3600.0,
+        )
         await asyncio.sleep(wait_secs)
         await run_nightly_pipeline()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Daily Data & Quant Pipeline Scheduler")
-    parser.add_argument("--once", action="store_true", help="Run the pipeline once immediately and exit")
-    parser.add_argument("--daemon", action="store_true", help="Run in continuous daemon mode (triggers at 23:30 IST)")
+    parser.add_argument(
+        "--once", action="store_true", help="Run the pipeline once immediately and exit"
+    )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Run in continuous daemon mode (triggers at 23:30 IST)",
+    )
     args = parser.parse_args()
 
     if args.daemon:
