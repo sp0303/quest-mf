@@ -33,7 +33,8 @@ export const QuadrantMatrixChart: React.FC<QuadrantMatrixChartProps> = ({
         formatter: (params: any) => {
           const d = params.data;
           if (!d) return "";
-          return `<b>${d.name}</b><br/>Peer: ${d.value[0]}%<br/>SHP: ${d.value[1]}%<br/>Quadrant: Q${d.quadrant}<br/>Composite: ${d.composite.toFixed(1)}`;
+          const composite = d.composite == null ? "—" : d.composite.toFixed(1);
+          return `<b>${d.name}</b><br/>Peer: ${d.value[0]}%<br/>SHP: ${d.value[1]}%<br/>Quadrant: Q${d.quadrant}<br/>Composite: ${composite}`;
         },
       },
       grid: { top: 60, right: 30, bottom: 40, left: 40 },
@@ -55,15 +56,17 @@ export const QuadrantMatrixChart: React.FC<QuadrantMatrixChartProps> = ({
         {
           type: "scatter",
           symbolSize: 12,
-          data: data.map((d) => ({
-            name: d.fund_name,
-            value: [Math.round(d.peer_pct_3m), Math.round(d.shp_3m)],
-            quadrant: d.quadrant,
-            composite: d.composite,
-            itemStyle: {
-              color: d.quadrant === 1 ? ink : midGray,
-            },
-          })),
+          data: data
+            .filter((d) => d.peer_pct_3m != null && d.shp_3m != null)
+            .map((d) => ({
+              name: d.fund_name,
+              value: [Math.round(d.peer_pct_3m), Math.round(d.shp_3m)],
+              quadrant: d.quadrant,
+              composite: d.composite,
+              itemStyle: {
+                color: d.quadrant === 1 ? ink : midGray,
+              },
+            })),
           markLine: {
             silent: true,
             lineStyle: { color: hairline, type: "solid", width: 1.5 },

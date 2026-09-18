@@ -37,7 +37,7 @@ export const FundHeader: React.FC<FundHeaderProps> = ({ summary, onBack }) => {
       <div className="flex items-center gap-2">
         <div className="text-right">
           <div className="text-xs text-mid-gray">Composite Score</div>
-          <div className="text-2xl font-bold text-ink">{summary.composite.toFixed(1)}</div>
+          <div className="text-2xl font-bold text-ink">{summary.composite == null ? "—" : summary.composite.toFixed(1)}</div>
         </div>
       </div>
     </div>

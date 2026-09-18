@@ -23,7 +23,7 @@ const TableRow = React.memo<{ fund: ScreenerRow; onSelect: (id: number) => void 
         <div className="text-xs text-mid-gray">{fund.amc}</div>
       </td>
       <td className="py-3 px-3 text-right">
-        <span className="font-semibold text-sm text-ink">{fund.composite.toFixed(1)}</span>
+        <span className="font-semibold text-sm text-ink">{fund.composite == null ? "—" : fund.composite.toFixed(1)}</span>
       </td>
       <td className="py-3 px-3 text-center">
         <Badge variant={fund.quadrant === 1 ? "solid" : "soft"}>
