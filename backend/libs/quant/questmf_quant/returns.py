@@ -12,6 +12,8 @@ Formulas:
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 
 
@@ -26,6 +28,68 @@ def validate_canonical_scheme(plan: str, option: str, is_canonical: bool = True)
             raise ValueError("IDCW series cannot become canonical (Rule Q7, Test L)")
         if option.strip().upper() != "GROWTH":
             raise ValueError(f"Canonical series must have GROWTH option, got {option}")
+
+
+@dataclass(frozen=True)
+class CanonicalCandidate:
+    """One Direct-Growth scheme competing to be a portfolio's canonical series."""
+
+    scheme_code: int
+    plan: str
+    option: str
+    last_nav_date: date | None
+    nav_points: int
+
+
+def select_canonical_scheme(
+    candidates: Sequence[CanonicalCandidate],
+    as_of: date | None = None,
+    max_staleness_days: int = 5,
+) -> int | None:
+    """Select exactly one canonical Direct-Growth scheme for a portfolio (Rule Q7).
+
+    A single ``portfolio_id`` can map to several Direct-Growth ``scheme_code``s —
+    most often when a fund creates segregated side-pockets, each a distinct scheme
+    that ingestion also flags Direct-Growth. Q7 requires one canonical series, so
+    picking deterministically matters: a side-pocket whose NAV series ended long
+    ago (and often carries a one-day payout jump) must never shadow the live
+    series and corrupt every return window.
+
+    Selection order:
+
+    1. Keep only valid Direct-Growth candidates with NAV data (Q7 / Test L
+       exclude IDCW and empty series).
+    2. Prefer candidates that are fresh as of ``as_of`` — last NAV within
+       ``max_staleness_days`` (Q4 staleness). If none are fresh, fall back to
+       the whole valid set rather than returning nothing.
+    3. Within the preferred set, pick the most recent ``last_nav_date``, then the
+       longest history (``nav_points``), then the lowest ``scheme_code`` so the
+       result is stable across runs.
+
+    Returns the chosen ``scheme_code``, or ``None`` when no valid candidate exists.
+    """
+    valid = [
+        c
+        for c in candidates
+        if c.plan.strip().upper() == "DIRECT"
+        and c.option.strip().upper() == "GROWTH"
+        and c.last_nav_date is not None
+        and c.nav_points > 0
+    ]
+    if not valid:
+        return None
+
+    pool = valid
+    if as_of is not None:
+        fresh = [c for c in valid if (as_of - c.last_nav_date).days <= max_staleness_days]
+        if fresh:
+            pool = fresh
+
+    best = max(
+        pool,
+        key=lambda c: (c.last_nav_date, c.nav_points, -c.scheme_code),
+    )
+    return best.scheme_code
 
 
 def simple_return(nav_start: float, nav_end: float) -> float:

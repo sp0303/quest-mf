@@ -14,7 +14,12 @@ from datetime import date
 import asyncpg
 from questmf_quant.drawdown import max_drawdown
 from questmf_quant.percentile import mid_rank_percentile, own_history_percentile
-from questmf_quant.returns import cagr, simple_return
+from questmf_quant.returns import (
+    CanonicalCandidate,
+    cagr,
+    select_canonical_scheme,
+    simple_return,
+)
 from questmf_quant.risk import (
     annualized_downside_deviation,
     annualized_volatility,
@@ -40,29 +45,68 @@ async def run_compute_job() -> None:
     logger.info("Starting batch compute worker job...")
     conn = await asyncpg.connect(settings.pg_dsn)
     try:
-        # 1. Fetch portfolios and schemes
-        schemes = await conn.fetch("""
-            SELECT s.scheme_code, s.portfolio_id, s.scheme_name, p.display_name as fund_name,
+        # 1. Latest NAV date — needed before selection so canonical choice is
+        #    staleness-aware (Rule Q4).
+        latest_date_row = await conn.fetchrow(
+            "SELECT MAX(nav_date) as max_d FROM market.nav_history;"
+        )
+        as_of_date: date = latest_date_row["max_d"] or date.today()
+
+        # 2. Candidate canonical schemes with per-scheme NAV coverage. A single
+        #    portfolio can map to several Direct-Growth scheme_codes (e.g.
+        #    segregated side-pockets), and ingestion flags each canonical. Rule
+        #    Q7 requires exactly one canonical series per portfolio, so collapse
+        #    below with the tested select_canonical_scheme rule rather than
+        #    letting an arbitrary (last-processed) scheme win fund_summary.
+        candidate_rows = await conn.fetch("""
+            SELECT DISTINCT s.scheme_code, s.portfolio_id, s.plan, s.option,
+                   s.scheme_name, p.display_name as fund_name,
                    p.amc_id, a.name as amc_name,
                    COALESCE(c.category_id, 1) as category_id,
-                   COALESCE(c.code, 'EQ_SMALL_CAP') as category_code
+                   COALESCE(c.code, 'EQ_SMALL_CAP') as category_code,
+                   st.last_nav_date, st.nav_points
             FROM ref.schemes s
             JOIN ref.portfolios p ON s.portfolio_id = p.portfolio_id
             JOIN ref.amcs a ON p.amc_id = a.amc_id
             LEFT JOIN ref.category_history ch ON p.portfolio_id = ch.portfolio_id
             LEFT JOIN ref.categories c ON ch.category_id = c.category_id
+            LEFT JOIN (
+                SELECT scheme_code, MAX(nav_date) AS last_nav_date, COUNT(*) AS nav_points
+                FROM market.nav_history
+                GROUP BY scheme_code
+            ) st ON st.scheme_code = s.scheme_code
             WHERE s.is_canonical = true;
         """)
 
-        if not schemes:
+        if not candidate_rows:
             logger.warning("No canonical schemes found to compute.")
             return
 
-        # 2. Fetch latest NAV date
-        latest_date_row = await conn.fetchrow(
-            "SELECT MAX(nav_date) as max_d FROM market.nav_history;"
-        )
-        as_of_date: date = latest_date_row["max_d"] or date.today()
+        by_portfolio: dict[int, dict[int, asyncpg.Record]] = {}
+        for r in candidate_rows:
+            by_portfolio.setdefault(r["portfolio_id"], {})[r["scheme_code"]] = r
+
+        schemes: list[asyncpg.Record] = []
+        for rows_by_code in by_portfolio.values():
+            chosen = select_canonical_scheme(
+                [
+                    CanonicalCandidate(
+                        scheme_code=rr["scheme_code"],
+                        plan=rr["plan"],
+                        option=rr["option"],
+                        last_nav_date=rr["last_nav_date"],
+                        nav_points=rr["nav_points"] or 0,
+                    )
+                    for rr in rows_by_code.values()
+                ],
+                as_of=as_of_date,
+            )
+            if chosen is not None:
+                schemes.append(rows_by_code[chosen])
+
+        if not schemes:
+            logger.warning("No canonical schemes with NAV data to compute.")
+            return
 
         # 2b. Fetch benchmark history and portfolio benchmark mapping
         bench_rows = await conn.fetch(

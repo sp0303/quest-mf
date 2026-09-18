@@ -4,7 +4,13 @@ from datetime import date
 
 import pytest
 from questmf_quant.calendar.windows import STANDARD_WINDOWS
-from questmf_quant.returns import active_return, simple_return, validate_canonical_scheme
+from questmf_quant.returns import (
+    CanonicalCandidate,
+    active_return,
+    select_canonical_scheme,
+    simple_return,
+    validate_canonical_scheme,
+)
 from questmf_quant.rolling import compute_rolling_windows
 from questmf_quant.scoring import (
     DEFAULT_BASELINE_MODEL,
@@ -93,6 +99,43 @@ def test_l_idcw_cannot_be_canonical():
 
     # Direct Growth canonical is valid
     validate_canonical_scheme(plan="DIRECT", option="GROWTH", is_canonical=True)
+
+
+def test_l_single_canonical_scheme_per_portfolio():
+    """Rule Q7: a portfolio with several Direct-Growth schemes resolves to one.
+
+    Models portfolio 15565 (Nippon India Equity Savings): a live main series and
+    a segregated side-pocket that both carry the Direct-Growth canonical flag.
+    The stale side-pocket must never win, or every return window inherits its
+    one-day payout jump.
+    """
+    as_of = date(2026, 9, 19)
+    main = CanonicalCandidate(
+        scheme_code=134594,
+        plan="DIRECT",
+        option="GROWTH",
+        last_nav_date=date(2026, 9, 18),
+        nav_points=1001,
+    )
+    side_pocket = CanonicalCandidate(
+        scheme_code=147697,
+        plan="DIRECT",
+        option="GROWTH",
+        last_nav_date=date(2025, 3, 21),  # 18 months stale
+        nav_points=1000,
+    )
+
+    # The live series wins regardless of candidate ordering.
+    assert select_canonical_scheme([side_pocket, main], as_of=as_of) == 134594
+    assert select_canonical_scheme([main, side_pocket], as_of=as_of) == 134594
+
+    # IDCW and empty series are never eligible; no valid candidate -> None.
+    idcw = CanonicalCandidate(134595, "DIRECT", "IDCW", date(2026, 9, 18), 900)
+    empty = CanonicalCandidate(134596, "DIRECT", "GROWTH", None, 0)
+    assert select_canonical_scheme([idcw, empty], as_of=as_of) is None
+
+    # With no staleness context, the most recent series still wins.
+    assert select_canonical_scheme([side_pocket, main]) == 134594
 
 
 def test_p_survivorship_merged_fund_inclusion():
