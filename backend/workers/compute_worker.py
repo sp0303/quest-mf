@@ -40,6 +40,12 @@ from app.config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("compute_worker")
 
+# Rule Q4/Q12: a fund whose latest canonical NAV is older than this as of the run
+# date has no current data to score. It must be dropped from the active screener
+# (INSUFFICIENT_HISTORY), never scored off stale values — otherwise a wound-down
+# fund's final payout jump masquerades as a live return.
+MAX_SNAPSHOT_STALENESS_DAYS = 30
+
 
 async def run_compute_job() -> None:
     logger.info("Starting batch compute worker job...")
@@ -122,6 +128,7 @@ async def run_compute_job() -> None:
         portfolio_bench_map = {r["portfolio_id"]: r["benchmark_id"] for r in bm_mappings}
 
         fund_metrics: dict[int, dict] = {}
+        excluded_stale: list[int] = []
 
         # 3. For each canonical fund, fetch NAV series and compute individual metrics
         for s in schemes:
@@ -143,6 +150,13 @@ async def run_compute_job() -> None:
 
             navs = [float(r["nav"]) for r in nav_rows]
             dates = [r["nav_date"] for r in nav_rows]
+
+            # Rule Q4/Q12: skip funds whose latest NAV is stale as of the run date.
+            # They are dropped from the screener below rather than scored off a
+            # dead series (e.g. wound-down segregated debt with an 18-month gap).
+            if (as_of_date - dates[-1]).days > MAX_SNAPSHOT_STALENESS_DAYS:
+                excluded_stale.append(pid)
+                continue
 
             # Daily returns
             daily_returns = [(navs[i] / navs[i - 1]) - 1.0 for i in range(1, len(navs))]
@@ -335,6 +349,26 @@ async def run_compute_job() -> None:
                     conf,
                     quadrant,
                 )
+
+        # 4b. Rule Q4/Q12: purge stale funds from the active screener and detail
+        # views so they are not scored off dead NAV series. They remain in the
+        # raw NAV/history tables (Q10: no survivorship bias).
+        if excluded_stale:
+            await conn.execute(
+                "DELETE FROM scoring.screener_snapshot "
+                "WHERE as_of_date = $1 AND portfolio_id = ANY($2::int[]);",
+                as_of_date,
+                excluded_stale,
+            )
+            await conn.execute(
+                "DELETE FROM analytics.fund_summary WHERE portfolio_id = ANY($1::int[]);",
+                excluded_stale,
+            )
+            logger.info(
+                "Excluded %d stale funds (last NAV > %d days old) from screener.",
+                len(excluded_stale),
+                MAX_SNAPSHOT_STALENESS_DAYS,
+            )
 
         # 5. Update scoring.latest
         await conn.execute(
