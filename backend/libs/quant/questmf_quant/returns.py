@@ -15,6 +15,19 @@ import math
 from datetime import date
 
 
+def validate_canonical_scheme(plan: str, option: str, is_canonical: bool = True) -> None:
+    """Validate that canonical series adheres to Rule Q7 and Test L.
+
+    - Q7: Canonical series = Direct-Growth. Never compute returns from IDCW NAV.
+    - Test L: IDCW series cannot become canonical (raises ValueError).
+    """
+    if is_canonical:
+        if option.strip().upper() == "IDCW":
+            raise ValueError("IDCW series cannot become canonical (Rule Q7, Test L)")
+        if option.strip().upper() != "GROWTH":
+            raise ValueError(f"Canonical series must have GROWTH option, got {option}")
+
+
 def simple_return(nav_start: float, nav_end: float) -> float:
     """Calculate simple percentage return."""
     if nav_start <= 0:

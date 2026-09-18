@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "tsc -b --noEmit",
+    "gen:api": "node scripts/gen-api.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.56.2",

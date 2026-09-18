@@ -1,5 +1,7 @@
 """Screener router for fund rankings and 2x2 matrix."""
 
+from datetime import date
+
 import asyncpg
 from fastapi import APIRouter, Depends, Query
 
@@ -45,6 +47,7 @@ async def get_models(conn: asyncpg.Connection = Depends(get_db_connection)):
 
 @router.get("/screener")
 async def get_screener(
+    as_of_date: date | None = Query(None),
     category_id: int | None = Query(None),
     min_confidence: int = Query(0),
     investable_only: bool = Query(False),
@@ -61,29 +64,32 @@ async def get_screener(
             portfolio_id, fund_name, amc, ret_1m, ret_3m, ret_6m, ret_1y,
             cagr_3y, shp_3m, peer_pct_3m, alpha_3m, ir_3y, mdd_3y, ter,
             exit_load_rate, exit_load_days, composite, confidence, quadrant,
-            flags, investable, category_id
+            flags, investable, category_id, as_of_date
         FROM scoring.screener_snapshot
-        WHERE ($1::smallint IS NULL OR category_id = $1)
-          AND confidence >= $2
-          AND ($3::boolean IS FALSE OR investable = true)
+        WHERE as_of_date = COALESCE($1, (SELECT as_of_date FROM scoring.latest WHERE model_version = 'v1_baseline' LIMIT 1))
+          AND ($2::smallint IS NULL OR category_id = $2)
+          AND confidence >= $3
+          AND ($4::boolean IS FALSE OR investable = true)
         ORDER BY {sort_col} {dir_sql} NULLS LAST
-        LIMIT $4;
+        LIMIT $5;
     """
-    rows = await conn.fetch(query, category_id, min_confidence, investable_only, limit)
+    rows = await conn.fetch(query, as_of_date, category_id, min_confidence, investable_only, limit)
     return [dict(r) for r in rows]
 
 
 @router.get("/matrix")
 async def get_matrix(
+    as_of_date: date | None = Query(None),
     category_id: int | None = Query(None),
     conn: asyncpg.Connection = Depends(get_db_connection),
 ):
     query = """
         SELECT portfolio_id, fund_name, peer_pct_3m, shp_3m, quadrant, composite
         FROM scoring.screener_snapshot
-        WHERE ($1::smallint IS NULL OR category_id = $1)
+        WHERE as_of_date = COALESCE($1, (SELECT as_of_date FROM scoring.latest WHERE model_version = 'v1_baseline' LIMIT 1))
+          AND ($2::smallint IS NULL OR category_id = $2)
           AND peer_pct_3m IS NOT NULL
           AND shp_3m IS NOT NULL;
     """
-    rows = await conn.fetch(query, category_id)
+    rows = await conn.fetch(query, as_of_date, category_id)
     return [dict(r) for r in rows]

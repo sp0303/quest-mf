@@ -1,10 +1,12 @@
 """Backtest router for walk-forward simulations."""
 
+import json
 from datetime import date
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from questmf_quant.backtest.walkforward import BacktestConfig, run_walkforward_backtest
 
 from app.core.db import get_db_connection
 
@@ -23,60 +25,121 @@ async def create_backtest_run(
     req: CreateRunRequest,
     conn: asyncpg.Connection = Depends(get_db_connection),
 ):
-    # Simulated quick walk-forward backtest run
-    summary = {
-        "model_version": req.model_version,
-        "cagr_gross": 0.224,
-        "cagr_net": 0.188,
-        "sharpe_ratio": 1.45,
-        "max_drawdown": -0.162,
-        "rank_ic_mean": 0.082,
-        "top_k": req.top_k,
-        "rebalance_months": req.rebalance_months,
-    }
+    # Fetch historical NAVs for canonical schemes
+    nav_rows = await conn.fetch(
+        """
+        SELECT s.portfolio_id, h.nav_date, h.nav
+        FROM market.nav_history h
+        JOIN ref.schemes s ON h.scheme_code = s.scheme_code
+        WHERE s.is_canonical = true
+        ORDER BY h.nav_date ASC;
+        """
+    )
+    if not nav_rows:
+        raise HTTPException(status_code=400, detail="No historical NAVs found for backtest")
+
+    # Group NAVs by portfolio
+    nav_by_portfolio: dict[int, dict[date, float]] = {}
+    trading_calendar_set: set[date] = set()
+    for r in nav_rows:
+        pid = r["portfolio_id"]
+        d = r["nav_date"]
+        nav_val = float(r["nav"])
+        if pid not in nav_by_portfolio:
+            nav_by_portfolio[pid] = {}
+        nav_by_portfolio[pid][d] = nav_val
+        trading_calendar_set.add(d)
+
+    trading_calendar = sorted(trading_calendar_set)
+
+    # Fetch snapshot scores or generate scores as of rebalance dates
+    score_rows = await conn.fetch(
+        """
+        SELECT as_of_date, portfolio_id, composite
+        FROM scoring.screener_snapshot
+        WHERE model_version = $1
+        ORDER BY as_of_date ASC;
+        """,
+        req.model_version,
+    )
+    scores_by_date: dict[date, dict[int, float]] = {}
+    for r in score_rows:
+        d = r["as_of_date"]
+        if d not in scores_by_date:
+            scores_by_date[d] = {}
+        scores_by_date[d][r["portfolio_id"]] = float(r["composite"] or 50.0)
+
+    # If scores are only for one date, synthesize historical rebalance scores from trailing 3M return
+    if len(scores_by_date) <= 1 and len(trading_calendar) > 60:
+        for idx in range(60, len(trading_calendar), req.rebalance_months * 21):
+            d = trading_calendar[idx]
+            past_d = trading_calendar[idx - 60]
+            scores_by_date[d] = {}
+            for pid, p_navs in nav_by_portfolio.items():
+                if d in p_navs and past_d in p_navs and p_navs[past_d] > 0:
+                    ret_3m = (p_navs[d] / p_navs[past_d]) - 1.0
+                    scores_by_date[d][pid] = 50.0 + ret_3m * 200.0
+
+    cfg = BacktestConfig(
+        top_k=req.top_k,
+        rebalance_months=req.rebalance_months,
+        exec_lag_days=req.exec_lag_days,
+    )
+
+    result = run_walkforward_backtest(
+        nav_by_portfolio=nav_by_portfolio,
+        scores_by_date=scores_by_date,
+        trading_calendar=trading_calendar,
+        config=cfg,
+    )
+
+    config_json = json.dumps(
+        {
+            "top_k": req.top_k,
+            "rebalance_months": req.rebalance_months,
+            "exec_lag_days": req.exec_lag_days,
+        }
+    )
+    summary_json = json.dumps(result.summary)
 
     row = await conn.fetchrow(
         """
         INSERT INTO backtest.runs (
             created_by, model_version, config, status, progress_pct, summary, finished_at
         ) VALUES (
-            'analyst-1', $1, '{"top_k": 3}', 'DONE', 100.0, $2, now()
+            'analyst-1', $1, $2::jsonb, 'DONE', 100.0, $3::jsonb, now()
         ) RETURNING run_id, created_at, status;
-    """,
+        """,
         req.model_version,
-        summary,
+        config_json,
+        summary_json,
     )
-
     run_id = row["run_id"]
 
-    # Seed equity curve series for this run
-    equity_gross = 100000.0
-    equity_net = 100000.0
-    today = date.today()
-    for i in range(12, 0, -1):
-        d = today.replace(day=1)
-        # Shift back by months
-        m = (d.month - i) % 12 or 12
-        y = d.year - ((i - d.month + 12) // 12)
-        curve_date = date(y, m, 1)
+    # Insert series in batches
+    series_records = []
+    step = max(1, len(result.equity_curve_gross) // 100)
+    sampled_gross = result.equity_curve_gross[::step]
+    sampled_net = result.equity_curve_net[::step]
+    if result.equity_curve_gross and sampled_gross[-1] != result.equity_curve_gross[-1]:
+        sampled_gross.append(result.equity_curve_gross[-1])
+        sampled_net.append(result.equity_curve_net[-1])
 
-        equity_gross *= 1.018
-        equity_net *= 1.015
+    for d, val in sampled_gross:
+        series_records.append((run_id, "EQUITY_GROSS", d, val))
+    for d, val in sampled_net:
+        series_records.append((run_id, "EQUITY_NET", d, val))
 
-        await conn.execute(
-            """
-            INSERT INTO backtest.run_series (run_id, series, d, v)
-            VALUES ($1, 'EQUITY_GROSS', $2, $3),
-                   ($1, 'EQUITY_NET', $2, $4)
-            ON CONFLICT DO NOTHING;
+    await conn.executemany(
+        """
+        INSERT INTO backtest.run_series (run_id, series, d, v)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT DO NOTHING;
         """,
-            run_id,
-            curve_date,
-            round(equity_gross, 2),
-            round(equity_net, 2),
-        )
+        series_records,
+    )
 
-    return {"run_id": run_id, "status": "DONE", "summary": summary}
+    return {"run_id": run_id, "status": "DONE", "summary": result.summary}
 
 
 @router.get("/runs")

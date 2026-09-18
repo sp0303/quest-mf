@@ -60,11 +60,11 @@ def momentum_acceleration(
     prices: list[float] | np.ndarray,
     short_window: int = 21,
     long_window: int = 63,
-) -> float:
-    """Calculate Momentum Acceleration (rate of change of ROC)."""
+) -> float | None:
+    """Calculate Momentum Acceleration (rate of change of ROC). Returns None if insufficient history (Q12)."""
     arr = np.asarray(prices, dtype=np.float64)
     if len(arr) < long_window + short_window:
-        return 0.0
+        return None
 
     # Recent short-term return
     ret_recent = (arr[-1] / arr[-short_window]) - 1.0
@@ -78,12 +78,12 @@ def relative_strength_slope(
     fund_prices: list[float] | np.ndarray,
     bench_prices: list[float] | np.ndarray,
     window: int = 63,
-) -> float:
-    """Linear regression slope of the Relative Strength ratio (Fund / Benchmark)."""
+) -> float | None:
+    """Linear regression slope of the Relative Strength ratio (Fund / Benchmark). Returns None if insufficient history (Q12)."""
     f_arr = np.asarray(fund_prices, dtype=np.float64)
     b_arr = np.asarray(bench_prices, dtype=np.float64)
     if len(f_arr) < window or len(b_arr) < window:
-        return 0.0
+        return None
 
     ratio = f_arr[-window:] / b_arr[-window:]
     x = np.arange(window, dtype=np.float64)

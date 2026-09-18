@@ -56,6 +56,20 @@ async def init_database():
             )
 
         logger.info("Reference categories and default model version seeded.")
+
+        # Seed default analyst account in auth.users
+        from app.core.security import hash_password
+
+        pwd_hash = hash_password("Analyst@2026!")
+        await conn.execute(
+            """
+            INSERT INTO auth.users (email, password_hash, role, is_active)
+            VALUES ('analyst@questmf.local', $1, 'analyst', true)
+            ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash;
+        """,
+            pwd_hash,
+        )
+        logger.info("Default analyst account seeded (analyst@questmf.local).")
     finally:
         await conn.close()
 

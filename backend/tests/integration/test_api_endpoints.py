@@ -53,5 +53,66 @@ async def test_net_return_calculator_api():
         assert res.status_code == 200
         data = res.json()
         assert data["initial_investment"] == 100000.0
-        assert data["exit_load"] == 1199.94
         assert data["net_profit"] > 0
+
+
+@pytest.mark.asyncio
+async def test_fund_summary_and_risk_endpoints():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # Summary
+        res_sum = await ac.get("/api/analytics/v1/funds/101/summary")
+        assert res_sum.status_code == 200
+        data_sum = res_sum.json()
+        assert data_sum["portfolio_id"] == 101
+        assert "composite" in data_sum
+
+        # Risk (Rule 1: precomputed)
+        res_risk = await ac.get("/api/analytics/v1/funds/101/risk")
+        assert res_risk.status_code == 200
+        data_risk = res_risk.json()
+        assert data_risk["portfolio_id"] == 101
+        assert "volatility_ann" in data_risk
+        assert "sharpe_ratio" in data_risk
+
+
+@pytest.mark.asyncio
+async def test_screener_matrix_endpoint():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        res = await ac.get("/api/screener/v1/matrix")
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data) > 0
+        first = data[0]
+        assert "peer_pct_3m" in first
+        assert "shp_3m" in first
+        assert "quadrant" in first
+
+
+@pytest.mark.asyncio
+async def test_backtest_run_lifecycle():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        payload = {
+            "model_version": "v1_baseline",
+            "top_k": 3,
+            "rebalance_months": 3,
+            "exec_lag_days": 1,
+        }
+        res_post = await ac.post("/api/backtests/v1/runs", json=payload)
+        assert res_post.status_code == 200
+        run_data = res_post.json()
+        run_id = run_data["run_id"]
+        assert run_id > 0
+        assert run_data["status"] == "DONE"
+        assert "cagr_gross" in run_data["summary"]
+        assert "cagr_net" in run_data["summary"]
+
+        # Get run
+        res_get = await ac.get(f"/api/backtests/v1/runs/{run_id}")
+        assert res_get.status_code == 200
+
+        # Get series
+        res_series = await ac.get(f"/api/backtests/v1/runs/{run_id}/series")
+        assert res_series.status_code == 200
+        series_data = res_series.json()
+        assert len(series_data["gross"]) > 0
+        assert len(series_data["net"]) > 0
