@@ -8,7 +8,7 @@ export interface SEOProps {
 }
 
 const DEFAULT_TITLE =
-  "quest-mf — Mutual Fund Quant Screener, Rolling Returns & SIP Analytics | a sharat patnayakuni's product";
+  "quest-mf — Mutual Fund Quant Screener, Rolling Returns & SIP Analytics | A Sharat Patnayakuni's product";
 const DEFAULT_DESCRIPTION =
   "India's premier quantitative mutual fund screener & portfolio analytics platform. Rolling returns, Sharpe ratio, alpha, backtesting & friction calculator. A Sharat Patnayakuni's product.";
 
@@ -48,7 +48,7 @@ export const SEO: React.FC<SEOProps> = ({
 
     // 5. Update Canonical Link
     if (canonicalPath) {
-      const fullUrl = `https://questmf.com${canonicalPath.startsWith("/") ? canonicalPath : `/${canonicalPath}`}`;
+      const fullUrl = `https://mf.sarey.tech${canonicalPath.startsWith("/") ? canonicalPath : `/${canonicalPath}`}`;
       let linkEl = document.querySelector('link[rel="canonical"]');
       if (!linkEl) {
         linkEl = document.createElement("link");

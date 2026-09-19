@@ -5,7 +5,7 @@
         http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
   <!-- Homepage & Quant Screener -->
   <url>
-    <loc>https://questmf.com/</loc>
+    <loc>https://mf.sarey.tech/</loc>
     <lastmod>2026-09-19</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
@@ -13,7 +13,7 @@
 
   <!-- Mutual Fund Friction & Net Return Calculator -->
   <url>
-    <loc>https://questmf.com/calculator</loc>
+    <loc>https://mf.sarey.tech/calculator</loc>
     <lastmod>2026-09-19</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -21,7 +21,7 @@
 
   <!-- Walk-Forward Backtest Simulator -->
   <url>
-    <loc>https://questmf.com/backtest</loc>
+    <loc>https://mf.sarey.tech/backtest</loc>
     <lastmod>2026-09-19</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -29,7 +29,7 @@
 
   <!-- Data Health & AMFI NAV Freshness -->
   <url>
-    <loc>https://questmf.com/health</loc>
+    <loc>https://mf.sarey.tech/health</loc>
     <lastmod>2026-09-19</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.6</priority>
