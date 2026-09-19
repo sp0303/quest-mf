@@ -96,7 +96,21 @@ async def run_compute_job() -> None:
               AND p.display_name NOT ILIKE '%Overseas%'
               AND p.display_name NOT ILIKE '%Taiwan%'
               AND p.display_name NOT ILIKE '%Silver%'
-              AND p.display_name NOT ILIKE '%Gold%';
+              AND p.display_name NOT ILIKE '%Gold%'
+              -- Debt funds miscategorised as equity in category_history (data fix
+              -- pending in ingestion); exclude by name so the screener stays equity.
+              AND p.display_name NOT ILIKE '%Liquid%'
+              AND p.display_name NOT ILIKE '%Debt%'
+              AND p.display_name NOT ILIKE '%Gilt%'
+              AND p.display_name NOT ILIKE '%Bond%'
+              AND p.display_name NOT ILIKE '%Money Market%'
+              AND p.display_name NOT ILIKE '%Overnight%'
+              AND p.display_name NOT ILIKE '%Banking & PSU%'
+              AND p.display_name NOT ILIKE '%Credit Risk%'
+              AND p.display_name NOT ILIKE '%Ultra Short%'
+              AND p.display_name NOT ILIKE '%Short Duration%'
+              AND p.display_name NOT ILIKE '%Low Duration%'
+              AND p.display_name NOT ILIKE '%Floater%';
             """,
             as_of_date,
         )

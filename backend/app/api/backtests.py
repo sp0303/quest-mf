@@ -47,6 +47,18 @@ async def create_backtest_run(
           AND p.display_name NOT ILIKE '%Taiwan%'
           AND p.display_name NOT ILIKE '%Silver%'
           AND p.display_name NOT ILIKE '%Gold%'
+          AND p.display_name NOT ILIKE '%Liquid%'
+          AND p.display_name NOT ILIKE '%Debt%'
+          AND p.display_name NOT ILIKE '%Gilt%'
+          AND p.display_name NOT ILIKE '%Bond%'
+          AND p.display_name NOT ILIKE '%Money Market%'
+          AND p.display_name NOT ILIKE '%Overnight%'
+          AND p.display_name NOT ILIKE '%Banking & PSU%'
+          AND p.display_name NOT ILIKE '%Credit Risk%'
+          AND p.display_name NOT ILIKE '%Ultra Short%'
+          AND p.display_name NOT ILIKE '%Short Duration%'
+          AND p.display_name NOT ILIKE '%Low Duration%'
+          AND p.display_name NOT ILIKE '%Floater%'
         ORDER BY s.portfolio_id, h.nav_date ASC;
         """
     )
