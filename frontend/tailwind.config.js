@@ -12,7 +12,7 @@ export default {
         "surface-alt": "#fafafa",
         ink: "#0a0a0a",
         "ink-soft": "#171717",
-        "mid-gray": "#737373",
+        "mid-gray": "#666666",
         hairline: "#e5e5e5",
         ember: "#e7000b",
       },

@@ -14,7 +14,7 @@ shadcn/ui is a monochromatic design-system workshop: pure white canvas, soft war
 | Surface Alt | `#fafafa` | `--color-surface-alt` | Sidebar background, subtle card variant, input resting state |
 | Ink | `#0a0a0a` | `--color-ink` | Primary text, headings, button labels, icon strokes |
 | Ink Soft | `#171717` | `--color-ink-soft` | Filled button backgrounds, secondary text on light surfaces |
-| Mid Gray | `#737373` | `--color-mid-gray` | Muted body text, placeholder text, helper labels, icon fills at rest |
+| Mid Gray | `#666666` | `--color-mid-gray` | Muted body text, placeholder text, helper labels, icon fills at rest |
 | Hairline | `#e5e5e5` | `--color-hairline` | Borders, input outlines, card edges, badge outlines |
 | Ember | `#e7000b` | `--color-ember` | Red decorative accent for icons, marks, and small graphic details. Use as a supporting accent, not as a status color |
 

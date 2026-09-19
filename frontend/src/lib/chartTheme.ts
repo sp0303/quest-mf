@@ -6,7 +6,7 @@
 export const chartTokens = {
   ink: "var(--color-ink, #0a0a0a)",
   inkSoft: "var(--color-ink-soft, #171717)",
-  midGray: "var(--color-mid-gray, #737373)",
+  midGray: "var(--color-mid-gray, #666666)",
   hairline: "var(--color-hairline, #e5e5e5)",
   canvas: "var(--color-canvas, #f5f5f5)",
   paper: "var(--color-paper, #ffffff)",

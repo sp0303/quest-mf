@@ -21,12 +21,11 @@ export const Topbar: React.FC = () => {
           <Link
             to="/"
             className="flex items-center gap-2 font-semibold text-lg tracking-tight"
-            aria-label="quest-mf — Mutual Fund Quant Screener by Sharat Patnayakuni"
+            aria-label="quest.mf — Mutual Fund Quant Screener by Sharat Patnayakuni"
           >
             <span
               className="w-8 h-8 rounded-2xl bg-ink text-paper flex items-center justify-center font-bold text-sm"
-              role="img"
-              aria-label="quest-mf Logo"
+              aria-hidden="true"
             >
               Q
             </span>

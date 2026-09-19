@@ -14,7 +14,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          "echarts-vendor": ["echarts"],
+          "echarts-vendor": ["echarts", "zrender"],
           "react-vendor": ["react", "react-dom", "react-router-dom"],
         },
       },

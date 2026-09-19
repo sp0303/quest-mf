@@ -1,6 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles } from "lucide-react";
+import { Card } from "@/components/ui/Card";
 import { ErrorCard } from "@/components/ui/ErrorCard";
 import { Skeleton } from "@/components/ui/Skeleton";
 import {
@@ -64,8 +65,12 @@ export const ScreenerPage: React.FC = () => {
 
       {isLoading && (
         <div className="space-y-4">
-          <Skeleton className="h-[280px]" />
-          <Skeleton className="h-64" />
+          <Card className="p-4 border-hairline bg-paper rounded-3xl">
+            <Skeleton className="h-[280px] w-full" />
+          </Card>
+          <div className="rounded-2xl border border-hairline bg-paper p-4">
+            <Skeleton className="h-[360px] w-full" />
+          </div>
         </div>
       )}
 
