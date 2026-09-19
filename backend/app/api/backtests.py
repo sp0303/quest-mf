@@ -69,8 +69,17 @@ async def create_backtest_run(
             scores_by_date[d] = {}
         scores_by_date[d][r["portfolio_id"]] = float(r["composite"] or 50.0)
 
-    # If scores are only for one date, synthesize historical rebalance scores from trailing 3M return
-    if len(scores_by_date) <= 1 and len(trading_calendar) > 60:
+    # The screener only scores recent as-of dates, so the real snapshot scores
+    # (typically one or two clustered dates) cannot drive a historical
+    # walk-forward — using them alone leaves the portfolio in cash until a single
+    # rebalance at the very end. Synthesize point-in-time rebalance scores from
+    # trailing 3M return whenever the real scores don't span enough history.
+    score_dates_present = sorted(scores_by_date.keys())
+    score_span_days = (
+        (score_dates_present[-1] - score_dates_present[0]).days if score_dates_present else 0
+    )
+    needs_synthesis = len(scores_by_date) < 4 or score_span_days < 180
+    if needs_synthesis and len(trading_calendar) > 60:
         for idx in range(60, len(trading_calendar), req.rebalance_months * 21):
             d = trading_calendar[idx]
             past_d = trading_calendar[idx - 60]
