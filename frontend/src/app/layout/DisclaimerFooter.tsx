@@ -19,7 +19,7 @@ export const DisclaimerFooter: React.FC = () => {
         </div>
       </div>
       <div className="max-w-7xl mx-auto mt-4 pt-4 border-t border-hairline text-center text-xs text-mid-gray">
-        A Sharat Patnayakuni product
+        © {new Date().getFullYear()} Sharat Patnayakuni&rsquo;s product
       </div>
     </footer>
   );

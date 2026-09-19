@@ -28,6 +28,7 @@ export const BacktestEquityChart: React.FC<BacktestEquityChartProps> = ({
       title: {
         text: "Walk-Forward Portfolio Equity Curve (₹100k Base)",
         left: "left",
+        top: 0,
         textStyle: { fontSize: 13, fontWeight: "bold" as const, color: ink },
       },
       tooltip: {
@@ -40,8 +41,12 @@ export const BacktestEquityChart: React.FC<BacktestEquityChartProps> = ({
           return str;
         },
       },
-      legend: { data: ["Gross Equity", "Net Equity (After Friction)"], top: 5 },
-      grid: { top: 60, right: 20, bottom: 40, left: 60 },
+      legend: {
+        data: ["Gross Equity", "Net Equity (After Friction)"],
+        top: 28,
+        left: "left",
+      },
+      grid: { top: 68, right: 20, bottom: 40, left: 60 },
       xAxis: {
         type: "category",
         data: dates,
