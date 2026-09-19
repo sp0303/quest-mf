@@ -466,6 +466,26 @@ async def run_compute_job() -> None:
                 MAX_SNAPSHOT_STALENESS_DAYS,
             )
 
+        # 4c. Purge any fund no longer in the in-scope universe (Spec §6.1/6.2):
+        # an upsert leaves rows from previous runs (e.g. ETFs, index, debt funds
+        # scored before the universe filter). Delete everything not computed this
+        # run so the snapshot equals the current universe.
+        computed_pids = list(fund_metrics.keys())
+        if computed_pids:
+            await conn.execute(
+                "DELETE FROM scoring.screener_snapshot "
+                "WHERE as_of_date = $1 AND model_version = $2 "
+                "AND NOT (portfolio_id = ANY($3::int[]));",
+                as_of_date,
+                active_model_version,
+                computed_pids,
+            )
+            await conn.execute(
+                "DELETE FROM analytics.fund_summary "
+                "WHERE NOT (portfolio_id = ANY($1::int[]));",
+                computed_pids,
+            )
+
         # 5. Update scoring.latest with active model version
         await conn.execute(
             """
