@@ -9,6 +9,7 @@ import {
   BacktestSummaryCard,
   useBacktest,
 } from "@/features/backtest";
+import { SEO } from "@/components/common/SEO";
 
 export const BacktestPage: React.FC = () => {
   const {
@@ -28,6 +29,12 @@ export const BacktestPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <SEO
+        title="Walk-Forward Backtest Simulator & Rebalancing | quest-mf"
+        description="Simulate periodic rebalancing strategies across top-ranked Indian mutual funds with execution lag, holding bounds, and real transaction frictions."
+        keywords="mutual fund backtest, walk forward backtest, periodic rebalancing, mutual fund strategies, alpha backtesting, quant finance India"
+        canonicalPath="/backtest"
+      />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-ink flex items-center gap-2">
           <span>Walk-Forward Backtest Simulator</span>

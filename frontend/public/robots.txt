@@ -1,0 +1,19 @@
+# robots.txt for quest-mf
+# https://questmf.com/
+
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# Specific rules for search engine bots
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+# Sitemap reference
+Sitemap: https://questmf.com/sitemap.xml

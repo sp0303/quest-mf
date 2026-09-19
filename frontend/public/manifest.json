@@ -1,0 +1,19 @@
+{
+  "short_name": "quest-mf",
+  "name": "quest-mf — Mutual Fund Quant Screener by Sharat Patnayakuni",
+  "description": "Institutional-grade mutual fund quant screener, rolling return analytics, walk-forward backtest engine and friction calculator.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any 192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "categories": ["finance", "productivity", "utilities"]
+}

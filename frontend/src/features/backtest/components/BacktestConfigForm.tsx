@@ -29,11 +29,13 @@ export const BacktestConfigForm: React.FC<BacktestConfigFormProps> = ({
 
       <form onSubmit={handleSubmit} className="mt-4 flex flex-wrap items-center gap-4">
         <div>
-          <label className="block text-xs font-medium text-mid-gray mb-1">Top K Funds</label>
+          <label htmlFor="top-k-select" className="block text-xs font-medium text-mid-gray mb-1">Top K Funds</label>
           <select
+            id="top-k-select"
             value={topK}
             onChange={(e) => setTopK(parseInt(e.target.value, 10))}
             className="h-9 px-3 rounded-2xl border border-hairline bg-surface-alt text-ink text-xs focus:outline-none focus:border-ink"
+            aria-label="Select Top K Funds to include"
           >
             {[1, 2, 3, 5, 10].map((k) => (
               <option key={k} value={k}>
@@ -44,11 +46,13 @@ export const BacktestConfigForm: React.FC<BacktestConfigFormProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-mid-gray mb-1">Rebalance Cadence</label>
+          <label htmlFor="rebalance-cadence" className="block text-xs font-medium text-mid-gray mb-1">Rebalance Cadence</label>
           <select
+            id="rebalance-cadence"
             value={rebalanceMonths}
             onChange={(e) => setRebalanceMonths(parseInt(e.target.value, 10))}
             className="h-9 px-3 rounded-2xl border border-hairline bg-surface-alt text-ink text-xs focus:outline-none focus:border-ink"
+            aria-label="Select Rebalance Cadence"
           >
             <option value={1}>Monthly (1M)</option>
             <option value={3}>Quarterly (3M)</option>

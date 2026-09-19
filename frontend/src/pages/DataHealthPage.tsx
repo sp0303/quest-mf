@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Activity, CheckCircle, Database, Server } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { SEO } from "@/components/common/SEO";
 
 export const DataHealthPage: React.FC = () => {
   const { data: freshness, isLoading } = useQuery({
@@ -23,9 +24,15 @@ export const DataHealthPage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
+      <SEO
+        title="Platform & Data Health Diagnostics | quest-mf"
+        description="Monitor AMFI NAV database records, ingestion pipeline freshness, and cloud PostgreSQL and Redis service health."
+        keywords="mutual fund data health, AMFI NAV database, data freshness, cloud postgres, redis cache health"
+        canonicalPath="/health"
+      />
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-ink flex items-center gap-2">
-          <Activity className="w-6 h-6 text-ink" />
+          <Activity className="w-6 h-6 text-ink" aria-hidden="true" />
           Platform & Data Health
         </h1>
         <p className="text-sm text-mid-gray mt-1">

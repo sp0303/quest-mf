@@ -9,6 +9,7 @@ import {
   ScreenerTable,
   useScreener,
 } from "@/features/screener";
+import { SEO } from "@/components/common/SEO";
 
 export const ScreenerPage: React.FC = () => {
   const navigate = useNavigate();
@@ -28,6 +29,12 @@ export const ScreenerPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <SEO
+        title="Mutual Fund Quant Screener & 2x2 Matrix | quest-mf"
+        description="Screen Indian direct mutual funds using rolling returns, benchmark TRI alpha, Sharpe ratios, and 2x2 quadrant peer percentiles with zero lookahead bias."
+        keywords="mutual fund screener, quant screener, direct mutual funds, rolling returns, Indian mutual funds, Sharpe ratio, alpha, AMFI NAV, equity mutual funds, Sharat Patnayakuni"
+        canonicalPath="/"
+      />
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

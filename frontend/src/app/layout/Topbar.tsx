@@ -18,15 +18,23 @@ export const Topbar: React.FC = () => {
       <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4">
         {/* Brand */}
         <div className="flex items-center gap-6">
-          <Link to="/" className="flex items-center gap-2 font-semibold text-lg tracking-tight">
-            <span className="w-8 h-8 rounded-2xl bg-ink text-paper flex items-center justify-center font-bold text-sm">
+          <Link
+            to="/"
+            className="flex items-center gap-2 font-semibold text-lg tracking-tight"
+            aria-label="quest-mf — Mutual Fund Quant Screener by Sharat Patnayakuni"
+          >
+            <span
+              className="w-8 h-8 rounded-2xl bg-ink text-paper flex items-center justify-center font-bold text-sm"
+              role="img"
+              aria-label="quest-mf Logo"
+            >
               Q
             </span>
             <span>quest<span className="text-mid-gray">.mf</span></span>
           </Link>
 
           {/* Navigation Links */}
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-1" aria-label="Main Navigation">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = location.pathname === item.path;
@@ -34,13 +42,14 @@ export const Topbar: React.FC = () => {
                 <Link
                   key={item.path}
                   to={item.path}
+                  aria-label={item.label}
                   className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl text-sm font-medium transition-colors ${
                     isActive
                       ? "bg-canvas text-ink"
                       : "text-mid-gray hover:text-ink hover:bg-surface-alt"
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon className="w-4 h-4" aria-hidden="true" />
                   {item.label}
                 </Link>
               );

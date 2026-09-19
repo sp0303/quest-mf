@@ -3,9 +3,9 @@ import { AlertCircle } from "lucide-react";
 
 export const DisclaimerFooter: React.FC = () => {
   return (
-    <footer className="mt-12 border-t border-hairline bg-surface-alt py-6 px-4">
+    <footer className="mt-12 border-t border-hairline bg-surface-alt py-6 px-4" aria-label="Footer disclaimer and attribution">
       <div className="max-w-7xl mx-auto flex items-start gap-3 text-xs text-mid-gray">
-        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-mid-gray" />
+        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-mid-gray" aria-hidden="true" />
         <div>
           <p className="font-medium text-ink">
             Research & Educational Platform — Not Investment Advice
@@ -19,7 +19,7 @@ export const DisclaimerFooter: React.FC = () => {
         </div>
       </div>
       <div className="max-w-7xl mx-auto mt-4 pt-4 border-t border-hairline text-center text-xs text-mid-gray">
-        © {new Date().getFullYear()} Sharat Patnayakuni&rsquo;s product
+        © {new Date().getFullYear()} a sharat patnayakuni&rsquo;s product
       </div>
     </footer>
   );

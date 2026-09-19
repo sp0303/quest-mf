@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Calculator, ArrowRight, CheckCircle2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { SEO } from "@/components/common/SEO";
 
 export const CalculatorPage: React.FC = () => {
   const [amount, setAmount] = useState<number>(100000);
@@ -41,9 +42,15 @@ export const CalculatorPage: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
+      <SEO
+        title="Mutual Fund Net Return & Capital Gains Tax Calculator (Budget 2024) | quest-mf"
+        description="Simulate post-friction mutual fund returns with Stamp Duty (0.005%), Exit Load, STT (0.1%), and post-Budget 2024 LTCG (12.5%) & STCG (20%) tax rates. A Sharat Patnayakuni's product."
+        keywords="mutual fund calculator, net return calculator, capital gains tax calculator, mutual fund tax India, LTCG tax mutual funds, STCG tax, exit load, stamp duty, post-tax returns, SIP calculator"
+        canonicalPath="/calculator"
+      />
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-ink flex items-center gap-2">
-          <Calculator className="w-6 h-6 text-ink" />
+          <Calculator className="w-6 h-6 text-ink" aria-hidden="true" />
           Friction & Net-Return Calculator
         </h1>
         <p className="text-sm text-mid-gray mt-1">
@@ -59,10 +66,11 @@ export const CalculatorPage: React.FC = () => {
           </h2>
 
           <div>
-            <label className="block text-xs font-medium text-mid-gray mb-1">
+            <label htmlFor="inv-amount" className="block text-xs font-medium text-mid-gray mb-1">
               Investment Amount (₹)
             </label>
             <input
+              id="inv-amount"
               type="number"
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
@@ -72,10 +80,11 @@ export const CalculatorPage: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-mid-gray mb-1">
+              <label htmlFor="buy-nav" className="block text-xs font-medium text-mid-gray mb-1">
                 Buy NAV (₹)
               </label>
               <input
+                id="buy-nav"
                 type="number"
                 value={buyNav}
                 onChange={(e) => setBuyNav(Number(e.target.value))}
@@ -83,10 +92,11 @@ export const CalculatorPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-mid-gray mb-1">
+              <label htmlFor="sell-nav" className="block text-xs font-medium text-mid-gray mb-1">
                 Sell NAV (₹)
               </label>
               <input
+                id="sell-nav"
                 type="number"
                 value={sellNav}
                 onChange={(e) => setSellNav(Number(e.target.value))}
@@ -96,10 +106,11 @@ export const CalculatorPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-mid-gray mb-1">
+            <label htmlFor="holding-days" className="block text-xs font-medium text-mid-gray mb-1">
               Holding Duration (Days)
             </label>
             <input
+              id="holding-days"
               type="number"
               value={daysHeld}
               onChange={(e) => setDaysHeld(Number(e.target.value))}
@@ -112,10 +123,11 @@ export const CalculatorPage: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-mid-gray mb-1">
+              <label htmlFor="exit-load-rate" className="block text-xs font-medium text-mid-gray mb-1">
                 Exit Load Rate (%)
               </label>
               <input
+                id="exit-load-rate"
                 type="number"
                 step="0.1"
                 value={exitLoadRate * 100}
@@ -124,10 +136,11 @@ export const CalculatorPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-mid-gray mb-1">
+              <label htmlFor="exit-load-days" className="block text-xs font-medium text-mid-gray mb-1">
                 Exit Load Window (Days)
               </label>
               <input
+                id="exit-load-days"
                 type="number"
                 value={exitLoadDays}
                 onChange={(e) => setExitLoadDays(Number(e.target.value))}
@@ -140,6 +153,7 @@ export const CalculatorPage: React.FC = () => {
             className="w-full mt-2"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
+            aria-label="Calculate Net Return"
           >
             Calculate Net Return
           </Button>
