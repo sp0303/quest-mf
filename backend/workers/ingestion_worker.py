@@ -506,17 +506,22 @@ async def ingest_amfi_and_historical(
                 INSERT INTO ref.schemes (
                     scheme_code, portfolio_id, isin_payout, isin_reinvest,
                     scheme_name, plan, option, status, is_canonical
-                ) VALUES ($1, $2, $3, $4, $5, 'DIRECT', 'GROWTH', 'ACTIVE', true)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', $8)
                 ON CONFLICT (scheme_code) DO UPDATE
                 SET portfolio_id = EXCLUDED.portfolio_id,
                     status = 'ACTIVE',
-                    is_canonical = true;
+                    plan = EXCLUDED.plan,
+                    option = EXCLUDED.option,
+                    is_canonical = EXCLUDED.is_canonical;
                 """,
                 s.scheme_code,
                 pid,
                 s.isin_payout,
                 s.isin_reinvest,
                 s.scheme_name,
+                s.plan,
+                s.option,
+                s.is_canonical,
             )
 
             await conn.execute(
@@ -533,6 +538,25 @@ async def ingest_amfi_and_historical(
 
         # Flush today's AMFI NAV points
         await flush_nav_records_to_db(conn, amfi_today_records)
+
+        # Rule Q7: Deduplicate canonical schemes so exactly one scheme per portfolio is canonical
+        await conn.execute("""
+            WITH ranked_canonical AS (
+                SELECT scheme_code, portfolio_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY portfolio_id
+                           ORDER BY 
+                               CASE WHEN scheme_name ILIKE '%segregated%' THEN 1 ELSE 0 END,
+                               scheme_code DESC
+                       ) as rn
+                FROM ref.schemes
+                WHERE is_canonical = true
+            )
+            UPDATE ref.schemes s
+            SET is_canonical = false
+            FROM ranked_canonical r
+            WHERE s.scheme_code = r.scheme_code AND r.rn > 1;
+        """)
 
         # 7. Parallel Multi-Year Historical Fetch via MFAPI
         sem = asyncio.Semaphore(concurrency)

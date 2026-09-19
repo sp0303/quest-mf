@@ -57,7 +57,7 @@ export const QuadrantMatrixChart: React.FC<QuadrantMatrixChartProps> = ({
           type: "scatter",
           symbolSize: 12,
           data: data
-            .filter((d) => d.peer_pct_3m != null && d.shp_3m != null)
+            .filter((d): d is MatrixItem & { peer_pct_3m: number; shp_3m: number } => d.peer_pct_3m != null && d.shp_3m != null)
             .map((d) => ({
               name: d.fund_name,
               value: [Math.round(d.peer_pct_3m), Math.round(d.shp_3m)],

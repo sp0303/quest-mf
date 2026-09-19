@@ -25,14 +25,29 @@ async def create_backtest_run(
     req: CreateRunRequest,
     conn: asyncpg.Connection = Depends(get_db_connection),
 ):
-    # Fetch historical NAVs for canonical schemes
+    # Fetch historical NAVs for in-scope canonical equity schemes with deduplication
     nav_rows = await conn.fetch(
         """
-        SELECT s.portfolio_id, h.nav_date, h.nav
+        SELECT DISTINCT ON (s.portfolio_id, h.nav_date)
+               s.portfolio_id, h.nav_date, h.nav
         FROM market.nav_history h
         JOIN ref.schemes s ON h.scheme_code = s.scheme_code
+        JOIN ref.portfolios p ON s.portfolio_id = p.portfolio_id
+        JOIN ref.category_history ch ON p.portfolio_id = ch.portfolio_id
+            AND h.nav_date BETWEEN ch.valid_from AND ch.valid_to
+        JOIN ref.categories c ON ch.category_id = c.category_id
+            AND c.asset_class = 'EQUITY'
+            AND c.code NOT IN ('EQ_ETF', 'EQ_INDEX')
         WHERE s.is_canonical = true
-        ORDER BY h.nav_date ASC;
+          AND s.status = 'ACTIVE'
+          AND p.closed_date IS NULL
+          AND p.display_name NOT ILIKE '%Fund of Fund%'
+          AND p.display_name NOT ILIKE '%FoF%'
+          AND p.display_name NOT ILIKE '%Overseas%'
+          AND p.display_name NOT ILIKE '%Taiwan%'
+          AND p.display_name NOT ILIKE '%Silver%'
+          AND p.display_name NOT ILIKE '%Gold%'
+        ORDER BY s.portfolio_id, h.nav_date ASC;
         """
     )
     if not nav_rows:

@@ -40,19 +40,19 @@ export const FundMetricsCard: React.FC<FundMetricsCardProps> = ({ summary, risk 
       <Card className="p-4 bg-paper border-hairline rounded-3xl">
         <div className="text-xs text-mid-gray">Annualized Volatility</div>
         <div className="text-lg font-semibold mt-1 text-ink">
-          {risk?.volatility_ann ? `${risk.volatility_ann.toFixed(2)}%` : "—"}
+          {risk?.volatility_ann != null ? `${risk.volatility_ann.toFixed(2)}%` : "—"}
         </div>
       </Card>
       <Card className="p-4 bg-paper border-hairline rounded-3xl">
         <div className="text-xs text-mid-gray">Sharpe Ratio (Rf=6.5%)</div>
         <div className="text-lg font-semibold mt-1 text-ink">
-          {risk?.sharpe_ratio !== undefined ? risk.sharpe_ratio.toFixed(2) : "—"}
+          {risk?.sharpe_ratio != null ? risk.sharpe_ratio.toFixed(2) : "—"}
         </div>
       </Card>
       <Card className="p-4 bg-paper border-hairline rounded-3xl">
         <div className="text-xs text-mid-gray">Sortino Ratio</div>
         <div className="text-lg font-semibold mt-1 text-ink">
-          {risk?.sortino_ratio !== undefined ? risk.sortino_ratio.toFixed(2) : "—"}
+          {risk?.sortino_ratio != null ? risk.sortino_ratio.toFixed(2) : "—"}
         </div>
       </Card>
       <Card className="p-4 bg-paper border-hairline rounded-3xl">

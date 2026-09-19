@@ -28,7 +28,7 @@ async def get_nav_series(
 
     rows = await conn.fetch(
         """
-        SELECT h.nav_date, h.nav
+        SELECT DISTINCT ON (h.nav_date) h.nav_date, h.nav
         FROM market.nav_history h
         JOIN ref.schemes s ON h.scheme_code = s.scheme_code
         WHERE s.portfolio_id = $1

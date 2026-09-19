@@ -19,9 +19,9 @@ export interface ScreenerRow {
   ter: number | null;
   exit_load_rate: number | null;
   exit_load_days: number | null;
-  composite: number;
+  composite: number | null;
   confidence: number;
-  quadrant: number;
+  quadrant: number | null;
   flags: number;
   investable: boolean;
   category_id: number;
@@ -31,10 +31,10 @@ export interface ScreenerRow {
 export interface MatrixItem {
   portfolio_id: number;
   fund_name: string;
-  peer_pct_3m: number;
-  shp_3m: number;
-  quadrant: number;
-  composite: number;
+  peer_pct_3m: number | null;
+  shp_3m: number | null;
+  quadrant: number | null;
+  composite: number | null;
 }
 
 export interface FundSummary {
@@ -57,9 +57,9 @@ export interface FundSummary {
   ter: number | null;
   exit_load_rate: number | null;
   exit_load_days: number | null;
-  composite: number;
+  composite: number | null;
   confidence: number;
-  quadrant: number;
+  quadrant: number | null;
   flags: number;
   investable: boolean;
 }
@@ -67,15 +67,15 @@ export interface FundSummary {
 export interface FundRiskMetrics {
   portfolio_id: number;
   as_of_date?: string;
-  volatility_ann: number;
-  downside_dev_ann: number;
-  sharpe_ratio: number;
-  sortino_ratio: number;
-  max_drawdown: number;
-  cagr_3y?: number;
+  volatility_ann: number | null;
+  downside_dev_ann: number | null;
+  sharpe_ratio: number | null;
+  sortino_ratio: number | null;
+  max_drawdown: number | null;
+  cagr_3y?: number | null;
   observations: number;
-  alpha_3m?: number;
-  ir_3y?: number;
+  alpha_3m?: number | null;
+  ir_3y?: number | null;
 }
 
 export interface Category {
