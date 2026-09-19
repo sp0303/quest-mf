@@ -35,6 +35,7 @@ from questmf_quant.risk import (
 )
 from questmf_quant.scoring import (
     DEFAULT_BASELINE_MODEL,
+    ModelConfig,
     assign_quadrant,
     compute_composite_score,
 )
@@ -152,12 +153,22 @@ async def run_compute_job() -> None:
             LIMIT 1;
             """
         )
-        active_model_version = model_row["model_version"] if model_row else "v1_baseline"
-        active_model_config = (
-            json.loads(model_row["config"])
-            if (model_row and isinstance(model_row["config"], str))
-            else (model_row["config"] if (model_row and model_row["config"]) else DEFAULT_BASELINE_MODEL)
-        )
+        # compute_composite_score needs a ModelConfig, not a raw dict. Build one
+        # from the stored config (Rule Q13), falling back to the baseline model.
+        if model_row and model_row["config"]:
+            raw_config = model_row["config"]
+            cfg_dict = json.loads(raw_config) if isinstance(raw_config, str) else dict(raw_config)
+            active_model_version = model_row["model_version"]
+            active_model_config = ModelConfig(
+                version=active_model_version,
+                weights=cfg_dict.get("weights", DEFAULT_BASELINE_MODEL.weights),
+                min_obs_required=cfg_dict.get(
+                    "min_obs_required", DEFAULT_BASELINE_MODEL.min_obs_required
+                ),
+            )
+        else:
+            active_model_version = DEFAULT_BASELINE_MODEL.version
+            active_model_config = DEFAULT_BASELINE_MODEL
 
         fund_metrics: dict[int, dict] = {}
         excluded_stale: list[int] = []
