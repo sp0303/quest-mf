@@ -132,21 +132,21 @@ async def precompute_portfolio_summary(
         sector = r["sector"] or "Others"
         cap_class = r["market_cap_class"]
 
-        if idx < 10:
-            top_10_sum += pct
-            top_10_list.append(
-                {
-                    "isin": r["isin"],
-                    "security_name": r["security_name"],
-                    "pct_nav": round(pct, 2),
-                    "sector": sector,
-                    "cap_class": cap_class,
-                }
-            )
-
         if asset_type == "EQUITY":
             equity_count += 1
             sector_sums[sector] += pct
+            if len(top_10_list) < 10:
+                top_10_sum += pct
+                top_10_list.append(
+                    {
+                        "isin": r["isin"],
+                        "security_name": r["security_name"],
+                        "pct_nav": round(pct, 2),
+                        "sector": sector,
+                        "cap_class": cap_class,
+                    }
+                )
+
             if cap_class == "LARGE_CAP":
                 large_cap_pct += pct
             elif cap_class == "MID_CAP":
@@ -332,6 +332,17 @@ SAMPLE_FUND_PROFILES: list[FundProfileEntry] = [
         min_sip_amount=100,
     ),
     FundProfileEntry(
+        portfolio_id=102,
+        fund_manager="Sandeep Tandon & Ankit Pande",
+        aum_cr=26800.0,
+        ter_pct=0.77,
+        portfolio_turnover_ratio=84.0,
+        pe_ratio=21.2,
+        pb_ratio=3.4,
+        riskometer="Very High",
+        min_sip_amount=1000,
+    ),
+    FundProfileEntry(
         portfolio_id=103,
         fund_manager="Chirag Setalvad",
         aum_cr=34100.0,
@@ -343,15 +354,103 @@ SAMPLE_FUND_PROFILES: list[FundProfileEntry] = [
         min_sip_amount=500,
     ),
     FundProfileEntry(
-        portfolio_id=111,
+        portfolio_id=104,
+        fund_manager="R. Srinivasan",
+        aum_cr=31200.0,
+        ter_pct=0.72,
+        portfolio_turnover_ratio=21.0,
+        pe_ratio=25.1,
+        pb_ratio=3.9,
+        riskometer="Very High",
+        min_sip_amount=500,
+    ),
+    FundProfileEntry(
+        portfolio_id=105,
+        fund_manager="Pankaj Tibrewal",
+        aum_cr=17500.0,
+        ter_pct=0.65,
+        portfolio_turnover_ratio=26.0,
+        pe_ratio=24.0,
+        pb_ratio=3.7,
+        riskometer="Very High",
+        min_sip_amount=500,
+    ),
+    FundProfileEntry(
+        portfolio_id=106,
+        fund_manager="Shreyash Devalkar",
+        aum_cr=22400.0,
+        ter_pct=0.58,
+        portfolio_turnover_ratio=19.0,
+        pe_ratio=26.2,
+        pb_ratio=4.1,
+        riskometer="Very High",
+        min_sip_amount=100,
+    ),
+    FundProfileEntry(
+        portfolio_id=107,
+        fund_manager="Chandraprakash Padiyar",
+        aum_cr=8200.0,
+        ter_pct=0.62,
+        portfolio_turnover_ratio=24.0,
+        pe_ratio=22.8,
+        pb_ratio=3.3,
+        riskometer="Very High",
+        min_sip_amount=100,
+    ),
+    FundProfileEntry(
+        portfolio_id=108,
+        fund_manager="Manish Gunwani",
+        aum_cr=5400.0,
+        ter_pct=0.55,
+        portfolio_turnover_ratio=38.0,
+        pe_ratio=20.9,
+        pb_ratio=3.1,
+        riskometer="Very High",
+        min_sip_amount=100,
+    ),
+    FundProfileEntry(
+        portfolio_id=109,
+        fund_manager="Taher Badshah",
+        aum_cr=4900.0,
+        ter_pct=0.64,
+        portfolio_turnover_ratio=29.0,
+        pe_ratio=23.5,
+        pb_ratio=3.6,
+        riskometer="Very High",
+        min_sip_amount=500,
+    ),
+    FundProfileEntry(
+        portfolio_id=110,
+        fund_manager="Resham Jain & Vinit Sambre",
+        aum_cr=15800.0,
+        ter_pct=0.74,
+        portfolio_turnover_ratio=23.0,
+        pe_ratio=24.5,
+        pb_ratio=3.8,
+        riskometer="Very High",
+        min_sip_amount=500,
+    ),
+    FundProfileEntry(
+        portfolio_id=201,
         fund_manager="Rajeev Thakkar & Raunak Onkar",
-        aum_cr=62500.0,
+        aum_cr=68500.0,
         ter_pct=0.62,
         portfolio_turnover_ratio=14.0,
         pe_ratio=22.4,
         pb_ratio=3.2,
         riskometer="Very High",
         min_sip_amount=1000,
+    ),
+    FundProfileEntry(
+        portfolio_id=202,
+        fund_manager="Roshi Jain",
+        aum_cr=59200.0,
+        ter_pct=0.75,
+        portfolio_turnover_ratio=34.0,
+        pe_ratio=21.8,
+        pb_ratio=3.1,
+        riskometer="Very High",
+        min_sip_amount=100,
     ),
     FundProfileEntry(
         portfolio_id=113,

@@ -178,3 +178,53 @@ class KotakParser(GenericAMCParser):
 
     def __init__(self, default_scheme_filter: str | None = "Small Cap"):
         super().__init__(amc_code="KOTAK", default_scheme_filter=default_scheme_filter)
+
+
+class QuantParser(GenericAMCParser):
+    """Parser for Quant Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="QUANT", default_scheme_filter=default_scheme_filter)
+
+
+class AxisParser(GenericAMCParser):
+    """Parser for Axis Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="AXIS", default_scheme_filter=default_scheme_filter)
+
+
+class PPFASParser(GenericAMCParser):
+    """Parser for PPFAS Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Flexi Cap"):
+        super().__init__(amc_code="PPFAS", default_scheme_filter=default_scheme_filter)
+
+
+class TataParser(GenericAMCParser):
+    """Parser for Tata Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="TATA", default_scheme_filter=default_scheme_filter)
+
+
+class BandhanParser(GenericAMCParser):
+    """Parser for Bandhan Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="BANDHAN", default_scheme_filter=default_scheme_filter)
+
+
+class InvescoParser(GenericAMCParser):
+    """Parser for Invesco Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="INVESCO", default_scheme_filter=default_scheme_filter)
+
+
+class DSPParser(GenericAMCParser):
+    """Parser for DSP Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="DSP", default_scheme_filter=default_scheme_filter)
+

@@ -32,12 +32,19 @@ from workers.holdings_worker import (
     precompute_portfolio_summary,
 )
 from workers.parsers import (
+    AxisParser,
+    BandhanParser,
+    DSPParser,
     GenericAMCParser,
     HDFCParser,
     ICICIPrudentialParser,
+    InvescoParser,
     KotakParser,
     NipponIndiaParser,
+    PPFASParser,
+    QuantParser,
     SBIParser,
+    TataParser,
 )
 
 logger = logging.getLogger("amc_holdings_scheduler")
@@ -59,11 +66,17 @@ REGISTERED_AMCS: dict[str, AMCRegistration] = {
         parser_factory=NipponIndiaParser,
         portfolio_schemes={101: "Small Cap"},
     ),
+    "quant": AMCRegistration(
+        amc_code="quant",
+        amc_name="Quant Mutual Fund",
+        parser_factory=QuantParser,
+        portfolio_schemes={102: "Small Cap"},
+    ),
     "hdfc": AMCRegistration(
         amc_code="hdfc",
         amc_name="HDFC Asset Management",
         parser_factory=HDFCParser,
-        portfolio_schemes={103: "HDFC Small Cap", 109: "HDFC Mid-Cap"},
+        portfolio_schemes={103: "Small Cap", 202: "Flexi Cap"},
     ),
     "icici": AMCRegistration(
         amc_code="icici",
@@ -82,6 +95,42 @@ REGISTERED_AMCS: dict[str, AMCRegistration] = {
         amc_name="Kotak Mahindra AMC",
         parser_factory=KotakParser,
         portfolio_schemes={105: "Small Cap"},
+    ),
+    "axis": AMCRegistration(
+        amc_code="axis",
+        amc_name="Axis Asset Management",
+        parser_factory=AxisParser,
+        portfolio_schemes={106: "Small Cap"},
+    ),
+    "tata": AMCRegistration(
+        amc_code="tata",
+        amc_name="Tata Mutual Fund",
+        parser_factory=TataParser,
+        portfolio_schemes={107: "Small Cap"},
+    ),
+    "bandhan": AMCRegistration(
+        amc_code="bandhan",
+        amc_name="Bandhan Mutual Fund",
+        parser_factory=BandhanParser,
+        portfolio_schemes={108: "Small Cap"},
+    ),
+    "invesco": AMCRegistration(
+        amc_code="invesco",
+        amc_name="Invesco Mutual Fund",
+        parser_factory=InvescoParser,
+        portfolio_schemes={109: "Small Cap"},
+    ),
+    "dsp": AMCRegistration(
+        amc_code="dsp",
+        amc_name="DSP Mutual Fund",
+        parser_factory=DSPParser,
+        portfolio_schemes={110: "Small Cap"},
+    ),
+    "ppfas": AMCRegistration(
+        amc_code="ppfas",
+        amc_name="PPFAS Mutual Fund",
+        parser_factory=PPFASParser,
+        portfolio_schemes={201: "Flexi Cap"},
     ),
 }
 
@@ -193,7 +242,14 @@ async def main() -> None:
         total_success = 0
         total_portfolios = 0
         for reg in amcs_to_run:
-            res = await run_amc_ingestion(conn, reg, file_bytes, as_of, disclosed, dry_run=args.dry_run)
+            wb_bytes = file_bytes
+            if wb_bytes is None:
+                cached_path = Path(__file__).resolve().parent.parent / "var" / "data" / "raw" / "holdings" / reg.amc_code / f"{as_of.isoformat()}_portfolio.xlsx"
+                if cached_path.exists():
+                    wb_bytes = cached_path.read_bytes()
+                    logger.info("Found cached disclosure file for %s at %s", reg.amc_name, cached_path)
+
+            res = await run_amc_ingestion(conn, reg, wb_bytes, as_of, disclosed, dry_run=args.dry_run)
             for pid, status_info in res.items():
                 total_portfolios += 1
                 if status_info.get("status") in ("SUCCESS", "DRY_RUN"):
