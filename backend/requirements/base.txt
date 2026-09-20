@@ -16,6 +16,7 @@ polars>=1.9.0
 duckdb>=1.1.0
 numpy>=2.0.0
 scipy>=1.14.0
+openpyxl>=3.1.0  # parse AMC monthly portfolio & AMFI market-cap .xlsx disclosures
 
 # HTTP & Security
 httpx[http2]>=0.27.0
