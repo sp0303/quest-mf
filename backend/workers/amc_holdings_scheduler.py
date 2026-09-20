@@ -25,9 +25,6 @@ import asyncpg
 
 from app.config import settings
 from workers.holdings_worker import (
-    SAMPLE_PORTFOLIO_HOLDINGS,
-    RawHoldingEntry,
-    ingest_amc_workbook,
     ingest_monthly_holdings,
     precompute_portfolio_summary,
 )
@@ -35,7 +32,6 @@ from workers.parsers import (
     AxisParser,
     BandhanParser,
     DSPParser,
-    GenericAMCParser,
     HDFCParser,
     ICICIPrudentialParser,
     InvescoParser,
@@ -160,40 +156,26 @@ async def run_amc_ingestion(
 
     for pid, scheme_filter in registration.portfolio_schemes.items():
         logger.info("Processing %s -> Portfolio ID %d ('%s')", registration.amc_name, pid, scheme_filter)
-        if workbook_data is not None:
+        amc_dir = Path(__file__).resolve().parent.parent / "var" / "data" / "raw" / "holdings" / registration.amc_code
+        scheme_slug = scheme_filter.lower().replace(" ", "_")
+        scheme_path = amc_dir / f"{as_of.isoformat()}_{registration.amc_code}_{scheme_slug}.xlsx"
+
+        curr_data = workbook_data
+        if scheme_path.exists():
+            curr_data = scheme_path.read_bytes()
+
+        if curr_data is not None:
             parse_res = parser.parse_workbook(
-                workbook_data,
+                curr_data,
                 portfolio_id=pid,
                 as_of_date=as_of,
                 disclosed_date=disclosed,
                 scheme_name_filter=scheme_filter,
             )
         else:
-            # Fallback to seeded portfolio holdings if no file provided
-            holdings_list = SAMPLE_PORTFOLIO_HOLDINGS.get(pid, [])
-            entries = [
-                RawHoldingEntry(
-                    portfolio_id=pid,
-                    as_of_date=as_of,
-                    isin=isin,
-                    security_name=name,
-                    asset_type=atype,
-                    sector=sec,
-                    quantity=100000.0,
-                    market_value_lakhs=round(pct * 500.0, 2),
-                    pct_nav=pct,
-                    disclosed_date=disclosed,
-                )
-                for isin, name, atype, sec, pct in holdings_list
-            ]
-            valid, msg = parser.validate_holdings(entries)
-            parse_res = type("Result", (), {
-                "valid": valid,
-                "holdings": entries,
-                "equity_count": sum(1 for e in entries if e.asset_type == "EQUITY"),
-                "total_weight": sum(e.pct_nav for e in entries),
-                "validation_message": msg,
-            })()
+            logger.warning("No authentic disclosure workbook found for %s (PID %d). Skipping per Rule Q16.", registration.amc_name, pid)
+            results[pid] = {"status": "SKIPPED", "reason": "No authentic disclosure workbook found"}
+            continue
 
         if not parse_res.valid:
             logger.warning("Validation failed for portfolio %d: %s", pid, parse_res.validation_message)

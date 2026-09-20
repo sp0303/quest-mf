@@ -4,6 +4,7 @@ import io
 from datetime import date
 
 import openpyxl
+
 from workers.parsers.base import BaseAMCParser
 from workers.parsers.nippon import NipponIndiaParser
 
@@ -37,10 +38,24 @@ def test_gate_h1_header_sniffing():
     assert mapping_offset.pct_nav_col == 6
 
 
+    # Scenario 3: Real AMC layout with embedded newlines in header cells (e.g. PPFAS, SBI)
+    rows_newlines = [
+        ["ISIN", "Name of the\nInstrument", "Industry / Rating", "Quantity", "Market/Fair Value\n (Rs. in Lakhs)", "% to Net\n Assets"],
+        ["INE002A01018", "Reliance Industries", "Energy", 1000, 25.0, 4.5],
+    ]
+    mapping_nl = BaseAMCParser.sniff_headers(rows_newlines)
+    assert mapping_nl.header_row_index == 0
+    assert mapping_nl.isin_col == 0
+    assert mapping_nl.name_col == 1
+    assert mapping_nl.pct_nav_col == 5
+
+
 def test_gate_h2_isin_validation():
     assert BaseAMCParser.clean_isin("INE002A01018") == "INE002A01018"
     assert BaseAMCParser.clean_isin("  ine040a01034  ") == "INE040A01034"
     assert BaseAMCParser.clean_isin("IN0020200154") == "IN0020200154"
+    assert BaseAMCParser.clean_isin("US02079K3059") == "US02079K3059"  # Alphabet Inc A (US ISIN)
+    assert BaseAMCParser.clean_isin("US5949181045") == "US5949181045"  # Microsoft Corp (US ISIN)
     assert BaseAMCParser.clean_isin("INVALID") is None
     assert BaseAMCParser.clean_isin("TREPS_CASH") is None
     assert BaseAMCParser.clean_isin("") is None
@@ -51,9 +66,34 @@ def test_gate_h3_weight_parsing():
     assert BaseAMCParser.clean_weight("4.25%") == 4.25
     assert BaseAMCParser.clean_weight(" 3.10 ") == 3.10
     assert BaseAMCParser.clean_weight(5.5) == 5.5
+    assert BaseAMCParser.clean_weight("$0.00%") == 0.0
     assert BaseAMCParser.clean_weight("--") == 0.0
     assert BaseAMCParser.clean_weight("NIL") == 0.0
     assert BaseAMCParser.clean_weight(None) == 0.0
+
+
+def test_gate_h3_decimal_fraction_autoscaling():
+    # When AMC records weights as fractions (e.g. 0.0763 for 7.63%), sum is ~1.0
+    rows = [
+        ["ISIN", "Name of Instrument", "Industry", "Quantity", "Market Value", "% to Net Assets"],
+        ["INE040A01034", "HDFC Bank Ltd", "Banks", 1500, 110.0, 0.0763],
+        ["INE090A01021", "ICICI Bank Ltd", "Banks", 1200, 85.0, 0.0567],
+        [None, "TREPS / Cash", "Cash", None, 500.0, 0.8320],
+        [None, "Grand Total", None, None, 695.0, 1.0000],
+    ]
+    res = BaseAMCParser.parse_sheet_rows(
+        rows_data=rows,
+        portfolio_id=201,
+        as_of_date=date(2026, 8, 31),
+        disclosed_date=date(2026, 9, 10),
+    )
+    assert res.valid is True
+    # Auto-scaled from 0.0763 -> 7.63, 0.0567 -> 5.67, 0.8320 -> 83.20
+    assert res.holdings[0].pct_nav == 7.63
+    assert res.holdings[1].pct_nav == 5.67
+    assert res.holdings[2].pct_nav == 83.20
+    assert res.total_weight == 96.50
+
 
 
 def test_gate_h4_weight_bounds_validation():
