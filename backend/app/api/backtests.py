@@ -28,19 +28,23 @@ async def create_backtest_run(
     # Fetch historical NAVs for in-scope canonical equity schemes with deduplication
     nav_rows = await conn.fetch(
         """
-        SELECT DISTINCT ON (s.portfolio_id, h.nav_date)
-               s.portfolio_id, h.nav_date, h.nav
+        WITH canonical_schemes AS (
+            SELECT DISTINCT ON (portfolio_id) scheme_code, portfolio_id
+            FROM ref.schemes
+            WHERE is_canonical = true AND status = 'ACTIVE'
+            ORDER BY portfolio_id, scheme_code ASC
+        )
+        SELECT cs.portfolio_id, h.nav_date, h.nav
         FROM market.nav_history h
-        JOIN ref.schemes s ON h.scheme_code = s.scheme_code
-        JOIN ref.portfolios p ON s.portfolio_id = p.portfolio_id
+        JOIN canonical_schemes cs ON h.scheme_code = cs.scheme_code
+        JOIN ref.portfolios p ON cs.portfolio_id = p.portfolio_id
         JOIN ref.category_history ch ON p.portfolio_id = ch.portfolio_id
             AND h.nav_date BETWEEN ch.valid_from AND ch.valid_to
         JOIN ref.categories c ON ch.category_id = c.category_id
             AND c.asset_class = 'EQUITY'
             AND c.code NOT IN ('EQ_ETF', 'EQ_INDEX')
-        WHERE s.is_canonical = true
-          AND s.status = 'ACTIVE'
-          AND p.closed_date IS NULL
+        WHERE p.closed_date IS NULL
+          AND h.nav > 0
           AND p.display_name NOT ILIKE '%Fund of Fund%'
           AND p.display_name NOT ILIKE '%FoF%'
           AND p.display_name NOT ILIKE '%Overseas%'
@@ -59,7 +63,7 @@ async def create_backtest_run(
           AND p.display_name NOT ILIKE '%Short Duration%'
           AND p.display_name NOT ILIKE '%Low Duration%'
           AND p.display_name NOT ILIKE '%Floater%'
-        ORDER BY s.portfolio_id, h.nav_date ASC;
+        ORDER BY cs.portfolio_id, h.nav_date ASC;
         """
     )
     if not nav_rows:
@@ -114,7 +118,9 @@ async def create_backtest_run(
             for pid, p_navs in nav_by_portfolio.items():
                 if d in p_navs and past_d in p_navs and p_navs[past_d] > 0:
                     ret_3m = (p_navs[d] / p_navs[past_d]) - 1.0
-                    scores_by_date[d][pid] = 50.0 + ret_3m * 200.0
+                    # Exclude extreme anomalies from data spikes
+                    if -0.80 <= ret_3m <= 2.0:
+                        scores_by_date[d][pid] = 50.0 + ret_3m * 200.0
 
     cfg = BacktestConfig(
         top_k=req.top_k,
@@ -186,7 +192,16 @@ async def list_runs(conn: asyncpg.Connection = Depends(get_db_connection)):
         ORDER BY run_id DESC
         LIMIT 20;
     """)
-    return [dict(r) for r in rows]
+    results = []
+    for r in rows:
+        d = dict(r)
+        if isinstance(d.get("summary"), str):
+            try:
+                d["summary"] = json.loads(d["summary"])
+            except Exception:
+                pass
+        results.append(d)
+    return results
 
 
 @router.get("/runs/{run_id}")
@@ -201,7 +216,13 @@ async def get_run(run_id: int, conn: asyncpg.Connection = Depends(get_db_connect
     )
     if not row:
         raise HTTPException(status_code=404, detail="Run not found")
-    return dict(row)
+    d = dict(row)
+    if isinstance(d.get("summary"), str):
+        try:
+            d["summary"] = json.loads(d["summary"])
+        except Exception:
+            pass
+    return d
 
 
 @router.get("/runs/{run_id}/series")

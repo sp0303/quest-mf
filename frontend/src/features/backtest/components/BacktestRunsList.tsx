@@ -1,7 +1,7 @@
 import React from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
-import type { BacktestRun } from "@/lib/schema";
+import type { BacktestRun, BacktestRunSummary } from "@/lib/schema";
 
 export interface BacktestRunsListProps {
   runs: BacktestRun[];
@@ -20,6 +20,17 @@ export const BacktestRunsList: React.FC<BacktestRunsListProps> = ({
       <div className="space-y-2 max-h-60 overflow-y-auto">
         {runs.map((r) => {
           const isSelected = r.run_id === selectedRunId;
+          const s: BacktestRunSummary | undefined =
+            typeof r.summary === "string"
+              ? (() => {
+                  try {
+                    return JSON.parse(r.summary);
+                  } catch {
+                    return undefined;
+                  }
+                })()
+              : r.summary;
+
           return (
             <div
               key={r.run_id}
@@ -38,10 +49,10 @@ export const BacktestRunsList: React.FC<BacktestRunsListProps> = ({
               </div>
               <div className="mt-1 flex items-center justify-between text-xs text-mid-gray">
                 <span>
-                  Top {r.summary?.top_k || 3} • {r.summary?.rebalance_months || 3}M Rebal
+                  Top {s?.top_k || 3} • {s?.rebalance_months || 3}M Rebal
                 </span>
                 <span className="text-ink font-medium">
-                  {r.summary?.cagr_net ? `Net ${(r.summary.cagr_net * 100).toFixed(1)}%` : "—"}
+                  {s?.cagr_net != null ? `Net ${(s.cagr_net * 100).toFixed(1)}%` : "—"}
                 </span>
               </div>
             </div>

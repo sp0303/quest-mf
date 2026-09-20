@@ -54,6 +54,27 @@ class BacktestResult:
     rank_ics: list[float] = field(default_factory=list)
 
 
+def _resolve_nav(
+    nav_map: dict[date, float],
+    target_date: date,
+    trading_calendar: list[date],
+    max_lookback_days: int = 5,
+) -> float | None:
+    """Find the latest valid NAV on or up to max_lookback_days before target_date."""
+    if target_date in nav_map and nav_map[target_date] > 0:
+        return nav_map[target_date]
+    import bisect
+
+    idx = bisect.bisect_left(trading_calendar, target_date)
+    for i in range(idx - 1, max(-1, idx - 1 - max_lookback_days), -1):
+        d_prev = trading_calendar[i]
+        if (target_date - d_prev).days > max_lookback_days:
+            break
+        if d_prev in nav_map and nav_map[d_prev] > 0:
+            return nav_map[d_prev]
+    return None
+
+
 def run_walkforward_backtest(
     nav_by_portfolio: dict[int, dict[date, float]],
     scores_by_date: dict[date, dict[int, float]],
@@ -153,7 +174,9 @@ def run_walkforward_backtest(
             ]
             for pid in to_exit_net:
                 h = net_holdings.pop(pid)
-                nav = nav_by_portfolio.get(pid, {}).get(d, h.last_nav or h.buy_nav)
+                nav = nav_by_portfolio.get(pid, {}).get(d)
+                if nav is None or nav <= 0:
+                    nav = h.last_nav or h.buy_nav
                 days_held = (d - h.buy_date).days
                 f_res = calculate_net_return(
                     initial_amount=h.net_invested,
@@ -170,50 +193,66 @@ def run_walkforward_backtest(
             to_exit_gross = [pid for pid in gross_holdings if pid not in targets]
             for pid in to_exit_gross:
                 units, last_nav = gross_holdings.pop(pid)
-                nav = nav_by_portfolio.get(pid, {}).get(d, last_nav)
+                nav = nav_by_portfolio.get(pid, {}).get(d)
+                if nav is None or nav <= 0:
+                    nav = last_nav
                 gross_cash += units * nav
 
-            # 2. Buy new targets
+            # 2. Buy new targets with valid price resolution (never default to 1.0)
             new_gross_targets = [pid for pid in targets if pid not in gross_holdings]
             if new_gross_targets and gross_cash > 0:
-                alloc_per = gross_cash / len(new_gross_targets)
-                for pid in new_gross_targets:
-                    nav = nav_by_portfolio.get(pid, {}).get(d, 1.0)
-                    units = alloc_per / nav
-                    gross_holdings[pid] = [units, nav]
-                gross_cash = 0.0
+                valid_gross_targets = [
+                    (pid, _resolve_nav(nav_by_portfolio.get(pid, {}), d, trading_calendar))
+                    for pid in new_gross_targets
+                ]
+                valid_gross_targets = [
+                    (pid, nav) for pid, nav in valid_gross_targets if nav is not None and nav > 0
+                ]
+                if valid_gross_targets:
+                    alloc_per = gross_cash / len(valid_gross_targets)
+                    for pid, nav in valid_gross_targets:
+                        units = alloc_per / nav
+                        gross_holdings[pid] = [units, nav]
+                    gross_cash = 0.0
 
             new_net_targets = [pid for pid in targets if pid not in net_holdings]
             if new_net_targets and net_cash > 0:
-                alloc_per = net_cash / len(new_net_targets)
-                for pid in new_net_targets:
-                    nav = nav_by_portfolio.get(pid, {}).get(d, 1.0)
-                    stamp = alloc_per * 0.00005
-                    net_inv = alloc_per - stamp
-                    units = net_inv / nav
-                    net_holdings[pid] = Holding(
-                        portfolio_id=pid,
-                        buy_date=d,
-                        buy_nav=nav,
-                        units=units,
-                        gross_cost=alloc_per,
-                        net_invested=net_inv,
-                        last_nav=nav,
-                    )
-                net_cash = 0.0
+                valid_net_targets = [
+                    (pid, _resolve_nav(nav_by_portfolio.get(pid, {}), d, trading_calendar))
+                    for pid in new_net_targets
+                ]
+                valid_net_targets = [
+                    (pid, nav) for pid, nav in valid_net_targets if nav is not None and nav > 0
+                ]
+                if valid_net_targets:
+                    alloc_per = net_cash / len(valid_net_targets)
+                    for pid, nav in valid_net_targets:
+                        stamp = alloc_per * 0.00005
+                        net_inv = alloc_per - stamp
+                        units = net_inv / nav
+                        net_holdings[pid] = Holding(
+                            portfolio_id=pid,
+                            buy_date=d,
+                            buy_nav=nav,
+                            units=units,
+                            gross_cost=alloc_per,
+                            net_invested=net_inv,
+                            last_nav=nav,
+                        )
+                    net_cash = 0.0
 
         # Mark-to-market daily valuations
         g_val = gross_cash
         for pid, gh in gross_holdings.items():
             nav = nav_by_portfolio.get(pid, {}).get(d)
-            if nav is not None:
+            if nav is not None and nav > 0:
                 gh[1] = nav
             g_val += gh[0] * gh[1]
 
         n_val = net_cash
         for pid, h in net_holdings.items():
             nav = nav_by_portfolio.get(pid, {}).get(d)
-            if nav is not None:
+            if nav is not None and nav > 0:
                 h.last_nav = nav
             days_held = (d - h.buy_date).days
             f_res = calculate_net_return(
@@ -232,23 +271,52 @@ def run_walkforward_backtest(
         equity_net.append((d, round(n_val, 2)))
 
     # Compute Summary
+    import math
+
     g_vals = [v for _, v in equity_gross]
     n_vals = [v for _, v in equity_net]
 
-    days = float((trading_calendar[-1] - trading_calendar[0]).days)
+    days = (
+        float((trading_calendar[-1] - trading_calendar[0]).days)
+        if len(trading_calendar) > 1
+        else 365.25
+    )
     if days <= 0:
         days = 365.25
-    c_gross = cagr(g_vals[0], g_vals[-1], days=days) if days > 0 and g_vals else 0.0
-    c_net = cagr(n_vals[0], n_vals[-1], days=days) if days > 0 and n_vals else 0.0
+
+    c_gross = 0.0
+    if g_vals and g_vals[0] > 0 and g_vals[-1] > 0 and days > 0:
+        try:
+            c_gross = cagr(g_vals[0], g_vals[-1], days=days)
+            if math.isnan(c_gross) or math.isinf(c_gross):
+                c_gross = 0.0
+        except Exception:
+            c_gross = 0.0
+
+    c_net = 0.0
+    if n_vals and n_vals[0] > 0 and n_vals[-1] > 0 and days > 0:
+        try:
+            c_net = cagr(n_vals[0], n_vals[-1], days=days)
+            if math.isnan(c_net) or math.isinf(c_net):
+                c_net = 0.0
+        except Exception:
+            c_net = 0.0
 
     mdd_val, _, _ = max_drawdown(n_vals) if n_vals else (0.0, 0, 0)
+    if mdd_val is None or math.isnan(mdd_val) or math.isinf(mdd_val):
+        mdd_val = 0.0
 
     # Net daily returns for Sharpe
     net_daily_rets = [
         (n_vals[i] / n_vals[i - 1]) - 1.0 for i in range(1, len(n_vals)) if n_vals[i - 1] > 0
     ]
     shp = sharpe_ratio(net_daily_rets, annual_rf=cfg.annual_rf) if net_daily_rets else 0.0
+    if shp is None or math.isnan(shp) or math.isinf(shp):
+        shp = 0.0
+
     mean_ic = sum(rank_ics) / len(rank_ics) if rank_ics else 0.0
+    if mean_ic is None or math.isnan(mean_ic) or math.isinf(mean_ic):
+        mean_ic = 0.0
 
     summary = {
         "cagr_gross": round(c_gross, 4),
