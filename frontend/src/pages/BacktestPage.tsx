@@ -45,7 +45,9 @@ export const BacktestPage: React.FC = () => {
         </p>
       </div>
 
-      <BacktestConfigForm onRun={createRun} isRunning={isCreating} />
+      <div data-tour="backtest-form">
+        <BacktestConfigForm onRun={createRun} isRunning={isCreating} />
+      </div>
 
       {isError && (
         <ErrorCard

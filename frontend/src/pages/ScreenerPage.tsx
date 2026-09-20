@@ -47,11 +47,13 @@ export const ScreenerPage: React.FC = () => {
             Rolling-window, benchmark-relative peer ranking with zero lookahead bias
           </p>
         </div>
-        <ScreenerFilters
-          categories={categories}
-          selectedCategoryId={categoryId}
-          onSelectCategory={setCategory}
-        />
+        <div data-tour="screener-filters">
+          <ScreenerFilters
+            categories={categories}
+            selectedCategoryId={categoryId}
+            onSelectCategory={setCategory}
+          />
+        </div>
       </div>
 
       {/* 4-State Handling */}
@@ -82,17 +84,21 @@ export const ScreenerPage: React.FC = () => {
 
       {!isLoading && !isError && funds.length > 0 && (
         <>
-          <QuadrantMatrixChart
-            data={matrixData}
-            onSelectFund={(id) => navigate(`/fund/${id}`)}
-          />
-          <ScreenerTable
-            funds={funds}
-            sortBy={sort}
-            sortDir=""
-            onSort={setSorting}
-            onSelectFund={(id) => navigate(`/fund/${id}`)}
-          />
+          <div data-tour="quadrant-matrix">
+            <QuadrantMatrixChart
+              data={matrixData}
+              onSelectFund={(id) => navigate(`/fund/${id}`)}
+            />
+          </div>
+          <div data-tour="screener-table">
+            <ScreenerTable
+              funds={funds}
+              sortBy={sort}
+              sortDir=""
+              onSort={setSorting}
+              onSelectFund={(id) => navigate(`/fund/${id}`)}
+            />
+          </div>
         </>
       )}
     </div>

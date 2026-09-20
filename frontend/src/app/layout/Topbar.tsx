@@ -1,10 +1,12 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Calculator, Database, Filter } from "lucide-react";
+import { Activity, BarChart3, Calculator, Compass, Database, Filter } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import { useTourStore } from "@/features/tour";
 
 export const Topbar: React.FC = () => {
   const location = useLocation();
+  const { startTour } = useTourStore();
 
   const navItems = [
     { label: "Screener", path: "/", icon: Filter },
@@ -20,6 +22,7 @@ export const Topbar: React.FC = () => {
         <div className="flex items-center gap-6">
           <Link
             to="/"
+            data-tour="brand-logo"
             className="flex items-center gap-2 font-semibold text-lg tracking-tight"
             aria-label="quest.mf — Mutual Fund Quant Screener by Sharat Patnayakuni"
           >
@@ -56,9 +59,17 @@ export const Topbar: React.FC = () => {
           </nav>
         </div>
 
-        {/* Status indicator */}
-        <div className="flex items-center gap-3">
-          <Badge variant="soft" className="flex items-center gap-1.5 text-xs text-mid-gray">
+        {/* Status indicator & Tour trigger */}
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => startTour(0)}
+            aria-label="Start interactive feature tour"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl text-xs font-medium bg-canvas hover:bg-surface-alt text-ink border border-hairline transition-colors shadow-sm"
+          >
+            <Compass className="w-3.5 h-3.5 text-ink" />
+            <span>Tour 🧭</span>
+          </button>
+          <Badge variant="soft" className="hidden sm:flex items-center gap-1.5 text-xs text-mid-gray">
             <Database className="w-3.5 h-3.5 text-ink" />
             <span>Cloud Postgres + Redis</span>
           </Badge>

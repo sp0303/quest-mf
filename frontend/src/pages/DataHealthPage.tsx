@@ -40,7 +40,7 @@ export const DataHealthPage: React.FC = () => {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div data-tour="data-health-grid" className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="p-5">
           <div className="flex items-center justify-between">
             <span className="text-xs text-mid-gray uppercase font-semibold">PostgreSQL</span>

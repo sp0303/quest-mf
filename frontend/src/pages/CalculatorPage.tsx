@@ -60,7 +60,7 @@ export const CalculatorPage: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Input Parameters Form */}
-        <Card className="p-5 space-y-4">
+        <Card data-tour="calculator-card" className="p-5 space-y-4">
           <h2 className="font-semibold text-sm text-ink uppercase tracking-wider border-b border-hairline pb-2">
             Investment Parameters
           </h2>

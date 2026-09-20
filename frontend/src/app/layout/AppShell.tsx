@@ -2,6 +2,7 @@ import React from "react";
 import { Outlet } from "react-router-dom";
 import { Topbar } from "./Topbar";
 import { DisclaimerFooter } from "./DisclaimerFooter";
+import { TourSpotlight, TourWelcomeModal } from "@/features/tour";
 
 export const AppShell: React.FC = () => {
   return (
@@ -11,6 +12,8 @@ export const AppShell: React.FC = () => {
         <Outlet />
       </main>
       <DisclaimerFooter />
+      <TourSpotlight />
+      <TourWelcomeModal />
     </div>
   );
 };
