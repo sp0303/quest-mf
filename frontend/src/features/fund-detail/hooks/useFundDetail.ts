@@ -17,6 +17,16 @@ export function useFundDetail(portfolioId: number) {
     queryFn: () => api.getFundNavHistory(portfolioId),
   });
 
+  const profileQuery = useQuery({
+    queryKey: ["fundProfile", portfolioId],
+    queryFn: () => api.getFundProfile(portfolioId),
+  });
+
+  const holdingsQuery = useQuery({
+    queryKey: ["fundHoldings", portfolioId],
+    queryFn: () => api.getFundHoldings(portfolioId),
+  });
+
   const isLoading =
     summaryQuery.isLoading || riskQuery.isLoading || navHistoryQuery.isLoading;
   const isError = summaryQuery.isError || riskQuery.isError;
@@ -26,6 +36,10 @@ export function useFundDetail(portfolioId: number) {
     summary: summaryQuery.data,
     risk: riskQuery.data,
     navHistory: navHistoryQuery.data,
+    profile: profileQuery.data,
+    holdings: holdingsQuery.data,
+    isProfileLoading: profileQuery.isLoading,
+    isHoldingsLoading: holdingsQuery.isLoading,
     isLoading,
     isError,
     error,
@@ -33,6 +47,8 @@ export function useFundDetail(portfolioId: number) {
       summaryQuery.refetch();
       riskQuery.refetch();
       navHistoryQuery.refetch();
+      profileQuery.refetch();
+      holdingsQuery.refetch();
     },
   };
 }

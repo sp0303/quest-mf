@@ -116,3 +116,41 @@ async def test_backtest_run_lifecycle():
         series_data = res_series.json()
         assert len(series_data["gross"]) > 0
         assert len(series_data["net"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_fund_profile_endpoint():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        res = await ac.get("/api/funds/v1/funds/101/profile")
+        assert res.status_code == 200
+        data = res.json()
+        if data is not None:
+            assert data["portfolio_id"] == 101
+            assert "fund_manager" in data
+            assert "riskometer" in data
+
+
+@pytest.mark.asyncio
+async def test_fund_holdings_endpoint():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        res = await ac.get("/api/funds/v1/funds/101/holdings")
+        assert res.status_code == 200
+        data = res.json()
+        if data is not None:
+            assert data["portfolio_id"] == 101
+            assert "top_10_concentration_pct" in data
+            assert "sector_allocation" in data
+            assert isinstance(data["holdings"], list)
+
+
+@pytest.mark.asyncio
+async def test_fund_overlap_endpoint():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        res = await ac.get("/api/funds/v1/funds/101/overlap?compare_with=103")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["portfolio_a_id"] == 101
+        assert data["portfolio_b_id"] == 103
+        assert "overlap_pct" in data
+        assert "common_holdings_count" in data
+        assert isinstance(data["common_holdings"], list)

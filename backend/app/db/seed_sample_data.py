@@ -429,6 +429,60 @@ async def seed_data():
             today,
         )
 
+        # Seed AMFI market caps and portfolio holdings
+        try:
+            from workers.amfi_marketcap_worker import BASELINE_SECURITIES, StockMarketCapEntry, upsert_market_caps
+            from workers.holdings_worker import (
+                RawHoldingEntry,
+                SAMPLE_FUND_PROFILES,
+                SAMPLE_PORTFOLIO_HOLDINGS,
+                ingest_monthly_holdings,
+                precompute_portfolio_summary,
+                upsert_fund_profile,
+            )
+
+            mcap_entries = [
+                StockMarketCapEntry(
+                    isin=isin,
+                    name=name,
+                    nse_symbol=sym,
+                    sector=sec,
+                    industry=ind,
+                    market_cap_rank=rank,
+                    avg_market_cap_cr=mcap,
+                    valid_from=date(today.year, 1, 1),
+                )
+                for isin, name, sym, sec, ind, rank, mcap in BASELINE_SECURITIES
+            ]
+            await upsert_market_caps(conn, mcap_entries)
+
+            holdings_as_of = date(today.year, today.month - 1 if today.month > 1 else 12, 28)
+            disclosed = date(today.year, today.month, 10)
+            for pid, holdings in SAMPLE_PORTFOLIO_HOLDINGS.items():
+                entries = [
+                    RawHoldingEntry(
+                        portfolio_id=pid,
+                        as_of_date=holdings_as_of,
+                        isin=isin,
+                        security_name=name,
+                        asset_type=atype,
+                        sector=sec,
+                        quantity=100000.0,
+                        market_value_lakhs=round(pct * 500.0, 2),
+                        pct_nav=pct,
+                        disclosed_date=disclosed,
+                    )
+                    for isin, name, atype, sec, pct in holdings
+                ]
+                await ingest_monthly_holdings(conn, entries)
+                await precompute_portfolio_summary(conn, pid, holdings_as_of)
+
+            for prof in SAMPLE_FUND_PROFILES:
+                await upsert_fund_profile(conn, prof)
+            print("Market caps, holdings, and fund profiles seeded successfully!")
+        except Exception as e:
+            print(f"Notice: holdings seeding skipped: {e}")
+
         print("Sample mutual funds and historical data seeded successfully!")
     finally:
         await conn.close()

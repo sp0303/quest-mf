@@ -2,10 +2,13 @@ import type {
   BacktestRun,
   BacktestSeriesResponse,
   Category,
+  FundProfile,
   FundRiskMetrics,
   FundSummary,
   MatrixItem,
   NetReturnCalculation,
+  PortfolioHoldingsResponse,
+  PortfolioOverlapResponse,
   ScreenerRow,
 } from "./schema";
 
@@ -55,6 +58,17 @@ export const api = {
   getFundNavHistory: (portfolioId: number) =>
     fetchJson<{ dates: string[]; navs: number[] }>(
       `${API_BASE}/market/v1/funds/${portfolioId}/nav-history`
+    ),
+
+  getFundProfile: (portfolioId: number) =>
+    fetchJson<FundProfile | null>(`${API_BASE}/funds/v1/funds/${portfolioId}/profile`),
+
+  getFundHoldings: (portfolioId: number) =>
+    fetchJson<PortfolioHoldingsResponse | null>(`${API_BASE}/funds/v1/funds/${portfolioId}/holdings`),
+
+  getFundOverlap: (portfolioId: number, compareWith: number) =>
+    fetchJson<PortfolioOverlapResponse>(
+      `${API_BASE}/funds/v1/funds/${portfolioId}/overlap?compare_with=${compareWith}`
     ),
 
   // Net Return Calculator

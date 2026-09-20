@@ -128,3 +128,70 @@ export interface BacktestSeriesResponse {
   gross: [string, number][];
   net: [string, number][];
 }
+
+export interface FundProfile {
+  portfolio_id: number;
+  fund_manager: string | null;
+  aum_cr: number | null;
+  ter_pct: number | null;
+  portfolio_turnover_ratio: number | null;
+  pe_ratio: number | null;
+  pb_ratio: number | null;
+  riskometer: string | null;
+  min_sip_amount: number | null;
+  updated_at?: string;
+}
+
+export interface SectorAllocationItem {
+  sector: string;
+  pct: number;
+}
+
+export interface HoldingItemDetail {
+  isin: string | null;
+  security_name: string;
+  asset_type?: string;
+  sector: string | null;
+  pct_nav: number;
+  cap_class?: "LARGE_CAP" | "MID_CAP" | "SMALL_CAP" | null;
+}
+
+export interface PortfolioHoldingsResponse {
+  portfolio_id: number;
+  as_of_date: string;
+  disclosed_date: string | null;
+  stock_count: number;
+  top_10_concentration_pct: number;
+  large_cap_pct: number;
+  mid_cap_pct: number;
+  small_cap_pct: number;
+  cash_pct: number;
+  sector_allocation: SectorAllocationItem[];
+  top_10_holdings: HoldingItemDetail[];
+  holdings: HoldingItemDetail[];
+}
+
+export interface CommonHoldingItem {
+  identifier: string;
+  name: string;
+  weight_a: number;
+  weight_b: number;
+  overlap_weight: number;
+  sector: string | null;
+}
+
+export interface PortfolioOverlapResponse {
+  portfolio_a_id: number;
+  portfolio_b_id: number;
+  portfolio_a_name: string;
+  portfolio_b_name: string;
+  as_of_date_a: string | null;
+  as_of_date_b: string | null;
+  overlap_pct: number;
+  common_holdings_count: number;
+  fund_a_total_weight: number;
+  fund_b_total_weight: number;
+  unique_to_a_count: number;
+  unique_to_b_count: number;
+  common_holdings: CommonHoldingItem[];
+}

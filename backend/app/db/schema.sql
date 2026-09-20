@@ -8,6 +8,7 @@ CREATE SCHEMA IF NOT EXISTS analytics;
 CREATE SCHEMA IF NOT EXISTS scoring;
 CREATE SCHEMA IF NOT EXISTS backtest;
 CREATE SCHEMA IF NOT EXISTS auth;
+CREATE SCHEMA IF NOT EXISTS holdings;
 
 -- 2. OPS
 CREATE TABLE IF NOT EXISTS ops.data_snapshots (
@@ -138,6 +139,39 @@ CREATE TABLE IF NOT EXISTS ref.load_rules (
     exit_load_rate REAL,
     exit_load_days SMALLINT,
     rule_text      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ref.securities (
+    isin         TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    nse_symbol   TEXT,
+    sector       TEXT,
+    industry     TEXT,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS ref.stock_market_cap (
+    isin             TEXT NOT NULL REFERENCES ref.securities(isin),
+    valid_from       DATE NOT NULL,
+    valid_to         DATE NOT NULL DEFAULT '9999-12-31',
+    market_cap_rank  INT NOT NULL,
+    market_cap_class TEXT NOT NULL CHECK (market_cap_class IN ('LARGE_CAP', 'MID_CAP', 'SMALL_CAP')),
+    avg_market_cap_cr NUMERIC(14,2),
+    PRIMARY KEY (isin, valid_from)
+);
+CREATE INDEX IF NOT EXISTS idx_stock_mcap_lookup ON ref.stock_market_cap (isin, valid_from, valid_to);
+
+CREATE TABLE IF NOT EXISTS ref.fund_profile (
+    portfolio_id             INT PRIMARY KEY REFERENCES ref.portfolios(portfolio_id),
+    fund_manager             TEXT,
+    aum_cr                   NUMERIC(14,2),
+    ter_pct                  REAL,
+    portfolio_turnover_ratio REAL,
+    pe_ratio                 REAL,
+    pb_ratio                 REAL,
+    riskometer               TEXT CHECK (riskometer IN ('Low', 'Low to Moderate', 'Moderate', 'Moderately High', 'High', 'Very High')),
+    min_sip_amount           INT,
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- 4. MARKET
@@ -282,3 +316,39 @@ CREATE TABLE IF NOT EXISTS auth.users (
     is_active     BOOLEAN NOT NULL DEFAULT true,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 9. HOLDINGS
+CREATE TABLE IF NOT EXISTS holdings.monthly_portfolio (
+    id                 BIGSERIAL PRIMARY KEY,
+    portfolio_id       INT NOT NULL REFERENCES ref.portfolios(portfolio_id),
+    as_of_date         DATE NOT NULL,
+    isin               TEXT,
+    security_name      TEXT NOT NULL,
+    asset_type         TEXT NOT NULL DEFAULT 'EQUITY' CHECK (asset_type IN ('EQUITY', 'DEBT', 'TREPS_CASH', 'DERIVATIVE', 'OTHER')),
+    sector             TEXT,
+    quantity           NUMERIC(18,4),
+    market_value_lakhs NUMERIC(14,2),
+    pct_nav            REAL NOT NULL,
+    disclosed_date     DATE NOT NULL,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (portfolio_id, as_of_date, security_name)
+);
+CREATE INDEX IF NOT EXISTS idx_holdings_portfolio_date ON holdings.monthly_portfolio (portfolio_id, as_of_date DESC);
+CREATE INDEX IF NOT EXISTS idx_holdings_isin ON holdings.monthly_portfolio (isin) WHERE isin IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS holdings.portfolio_summary (
+    portfolio_id             INT NOT NULL REFERENCES ref.portfolios(portfolio_id),
+    as_of_date               DATE NOT NULL,
+    stock_count              SMALLINT NOT NULL,
+    top_10_concentration_pct  REAL NOT NULL,
+    large_cap_pct            REAL NOT NULL DEFAULT 0.0,
+    mid_cap_pct              REAL NOT NULL DEFAULT 0.0,
+    small_cap_pct            REAL NOT NULL DEFAULT 0.0,
+    cash_pct                 REAL NOT NULL DEFAULT 0.0,
+    sector_allocation        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    top_10_holdings          JSONB NOT NULL DEFAULT '[]'::jsonb,
+    disclosed_date           DATE,
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (portfolio_id, as_of_date)
+);
+CREATE INDEX IF NOT EXISTS idx_portfolio_summary_date ON holdings.portfolio_summary (portfolio_id, as_of_date DESC);
