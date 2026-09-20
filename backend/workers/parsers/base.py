@@ -89,7 +89,7 @@ class BaseAMCParser(ABC):
         upper_name = name.strip().upper()
         upper_sec = (sector or "").strip().upper()
 
-        if any(w in upper_name for w in ("TREPS", "REVERSE REPO", "REPO", "CASH & CASH EQUIVALENTS", "NET RECEIVABLES", "CLEARING CORP")):
+        if any(w in upper_name for w in ("TREPS", "REVERSE REPO", "REPO", "CASH", "NET RECEIVABLES", "CLEARING CORP", "CURRENT ASSETS", "MARGIN MONEY")) or upper_sec in ("CASH", "CASH & CASH EQUIVALENTS", "TREPS", "MONEY MARKET"):
             return "TREPS_CASH"
         if any(w in upper_name for w in ("MUTUAL FUND UNITS", "EXCHANGE TRADED COMMODITY")):
             return "OTHER"
@@ -118,9 +118,9 @@ class BaseAMCParser(ABC):
             for col_idx, text in enumerate(row_strs):
                 if "isin" in text:
                     isin_col = col_idx
-                elif any(k in text for k in ("name of instrument", "name of the instrument", "security name", "instrument name")):
+                elif any(k in text for k in ("name of instrument", "name of the instrument", "security name", "instrument name", "company name", "name of company", "issuer name")):
                     name_col = col_idx
-                elif any(k in text for k in ("% to nav", "% to net assets", "percentage to net assets", "% of nav", "pct_nav")):
+                elif any(k in text for k in ("% to nav", "% to net assets", "percentage to net assets", "% of nav", "pct_nav", "% to aum", "% of aum", "% to total aum")):
                     pct_col = col_idx
                 elif any(k in text for k in ("industry", "sector", "rating / industry")):
                     sector_col = col_idx
