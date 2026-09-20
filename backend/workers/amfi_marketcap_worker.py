@@ -141,5 +141,120 @@ async def seed_market_caps(as_of: date = date(2026, 1, 1)) -> None:
         await conn.close()
 
 
+class AMFIMarketCapParser:
+    """Parser for official AMFI semi-annual stock classification workbooks."""
+
+    @classmethod
+    def parse_workbook(
+        cls,
+        workbook_data: Any,
+        valid_from: date,
+        valid_to: date = date(9999, 12, 31),
+    ) -> list[StockMarketCapEntry]:
+        """Parse official AMFI Excel file into StockMarketCapEntry objects."""
+        import io
+        import re
+        import openpyxl
+
+        isin_pattern = re.compile(r"^IN[A-Z0-9]{10}$", re.IGNORECASE)
+
+        if isinstance(workbook_data, (bytes, bytearray)):
+            wb = openpyxl.load_workbook(io.BytesIO(workbook_data), data_only=True)
+        elif isinstance(workbook_data, io.BytesIO):
+            wb = openpyxl.load_workbook(workbook_data, data_only=True)
+        else:
+            wb = openpyxl.load_workbook(workbook_data, data_only=True)
+
+        ws = wb.active or wb.worksheets[0]
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            return []
+
+        # Find header row
+        header_idx = None
+        isin_col = None
+        name_col = None
+        mcap_col = None
+        symbol_col = None
+
+        for idx, r in enumerate(rows[:20]):
+            r_str = [str(c).lower().strip() if c is not None else "" for c in r]
+            for c_idx, val in enumerate(r_str):
+                if "isin" in val:
+                    isin_col = c_idx
+                elif any(k in val for k in ("company name", "name of the company", "issuer")):
+                    name_col = c_idx
+                elif any(k in val for k in ("average market cap", "avg market cap", "mcap", "market cap")):
+                    mcap_col = c_idx
+                elif any(k in val for k in ("nse symbol", "symbol", "bse scrip")):
+                    symbol_col = c_idx
+
+            if isin_col is not None and name_col is not None:
+                header_idx = idx
+                break
+
+        if header_idx is None:
+            raise ValueError("Could not find required AMFI header row containing ISIN and Company Name")
+
+        entries: list[StockMarketCapEntry] = []
+        rank_counter = 1
+
+        for r in rows[header_idx + 1:]:
+            if not r or all(c is None for c in r):
+                continue
+
+            raw_isin = r[isin_col] if isin_col < len(r) else None
+            if not raw_isin:
+                continue
+
+            isin_str = str(raw_isin).strip().upper()
+            if not isin_pattern.match(isin_str):
+                continue
+
+            name_str = str(r[name_col]).strip() if name_col < len(r) and r[name_col] else isin_str
+            sym_str = str(r[symbol_col]).strip() if symbol_col is not None and symbol_col < len(r) and r[symbol_col] else ""
+
+            mcap_val = 0.0
+            if mcap_col is not None and mcap_col < len(r) and r[mcap_col]:
+                try:
+                    mcap_val = float(str(r[mcap_col]).replace(",", "").strip())
+                except ValueError:
+                    mcap_val = 0.0
+
+            entries.append(
+                StockMarketCapEntry(
+                    isin=isin_str,
+                    name=name_str,
+                    nse_symbol=sym_str,
+                    sector="",
+                    industry="",
+                    market_cap_rank=rank_counter,
+                    avg_market_cap_cr=mcap_val,
+                    valid_from=valid_from,
+                    valid_to=valid_to,
+                )
+            )
+            rank_counter += 1
+
+        return entries
+
+
+async def ingest_amfi_marketcap_file(
+    conn: asyncpg.Connection,
+    workbook_data: Any,
+    valid_from: date,
+    valid_to: date = date(9999, 12, 31),
+) -> int:
+    """Ingest and upsert official AMFI market-cap rankings."""
+    entries = AMFIMarketCapParser.parse_workbook(workbook_data, valid_from=valid_from, valid_to=valid_to)
+    if not entries:
+        logger.warning("No entries parsed from AMFI market cap file.")
+        return 0
+
+    await upsert_market_caps(conn, entries)
+    logger.info("Successfully ingested %d AMFI market cap classifications.", len(entries))
+    return len(entries)
+
+
 if __name__ == "__main__":
     asyncio.run(seed_market_caps())

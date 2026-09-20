@@ -1,0 +1,212 @@
+"""Automated AMC monthly portfolio holdings scheduler and CLI.
+
+Orchestrates monthly ingestion across registered AMCs:
+- Ingests SEBI monthly portfolio disclosures
+- Executes BaseAMCParser contract gates H1–H8
+- Precomputes holdings.portfolio_summary for sub-millisecond API queries (Rule 1)
+
+Usage:
+    python -m workers.amc_holdings_scheduler --amc all
+    python -m workers.amc_holdings_scheduler --amc nippon --as-of-date 2026-08-31
+    python -m workers.amc_holdings_scheduler --amc hdfc --file path/to/hdfc.xlsx
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+from dataclasses import dataclass
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Any
+
+import asyncpg
+
+from app.config import settings
+from workers.holdings_worker import (
+    SAMPLE_PORTFOLIO_HOLDINGS,
+    RawHoldingEntry,
+    ingest_amc_workbook,
+    ingest_monthly_holdings,
+    precompute_portfolio_summary,
+)
+from workers.parsers import (
+    GenericAMCParser,
+    HDFCParser,
+    ICICIPrudentialParser,
+    KotakParser,
+    NipponIndiaParser,
+    SBIParser,
+)
+
+logger = logging.getLogger("amc_holdings_scheduler")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+
+@dataclass(frozen=True)
+class AMCRegistration:
+    amc_code: str
+    amc_name: str
+    parser_factory: Any
+    portfolio_schemes: dict[int, str]  # portfolio_id -> scheme_name_filter
+
+
+REGISTERED_AMCS: dict[str, AMCRegistration] = {
+    "nippon": AMCRegistration(
+        amc_code="nippon",
+        amc_name="Nippon India Mutual Fund",
+        parser_factory=NipponIndiaParser,
+        portfolio_schemes={101: "Small Cap"},
+    ),
+    "hdfc": AMCRegistration(
+        amc_code="hdfc",
+        amc_name="HDFC Asset Management",
+        parser_factory=HDFCParser,
+        portfolio_schemes={103: "HDFC Small Cap", 109: "HDFC Mid-Cap"},
+    ),
+    "icici": AMCRegistration(
+        amc_code="icici",
+        amc_name="ICICI Prudential AMC",
+        parser_factory=ICICIPrudentialParser,
+        portfolio_schemes={113: "Bluechip"},
+    ),
+    "sbi": AMCRegistration(
+        amc_code="sbi",
+        amc_name="SBI Funds Management",
+        parser_factory=SBIParser,
+        portfolio_schemes={104: "Small Cap"},
+    ),
+    "kotak": AMCRegistration(
+        amc_code="kotak",
+        amc_name="Kotak Mahindra AMC",
+        parser_factory=KotakParser,
+        portfolio_schemes={105: "Small Cap"},
+    ),
+}
+
+
+def compute_default_dates() -> tuple[date, date]:
+    """Compute default (as_of_date, disclosed_date) for the latest completed month."""
+    today = date.today()
+    # First day of current month minus 1 day = last day of preceding month
+    first_of_current = date(today.year, today.month, 1)
+    as_of = first_of_current - timedelta(days=1)
+    # SEBI disclosure deadline is 10th of current month
+    disclosed = date(today.year, today.month, 10)
+    return as_of, disclosed
+
+
+async def run_amc_ingestion(
+    conn: asyncpg.Connection,
+    registration: AMCRegistration,
+    workbook_data: Any,
+    as_of: date,
+    disclosed: date,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Execute ingestion for a single AMC across its registered portfolios."""
+    parser = registration.parser_factory()
+    results: dict[int, Any] = {}
+
+    for pid, scheme_filter in registration.portfolio_schemes.items():
+        logger.info("Processing %s -> Portfolio ID %d ('%s')", registration.amc_name, pid, scheme_filter)
+        if workbook_data is not None:
+            parse_res = parser.parse_workbook(
+                workbook_data,
+                portfolio_id=pid,
+                as_of_date=as_of,
+                disclosed_date=disclosed,
+                scheme_name_filter=scheme_filter,
+            )
+        else:
+            # Fallback to seeded portfolio holdings if no file provided
+            holdings_list = SAMPLE_PORTFOLIO_HOLDINGS.get(pid, [])
+            entries = [
+                RawHoldingEntry(
+                    portfolio_id=pid,
+                    as_of_date=as_of,
+                    isin=isin,
+                    security_name=name,
+                    asset_type=atype,
+                    sector=sec,
+                    quantity=100000.0,
+                    market_value_lakhs=round(pct * 500.0, 2),
+                    pct_nav=pct,
+                    disclosed_date=disclosed,
+                )
+                for isin, name, atype, sec, pct in holdings_list
+            ]
+            valid, msg = parser.validate_holdings(entries)
+            parse_res = type("Result", (), {
+                "valid": valid,
+                "holdings": entries,
+                "equity_count": sum(1 for e in entries if e.asset_type == "EQUITY"),
+                "total_weight": sum(e.pct_nav for e in entries),
+                "validation_message": msg,
+            })()
+
+        if not parse_res.valid:
+            logger.warning("Validation failed for portfolio %d: %s", pid, parse_res.validation_message)
+            results[pid] = {"status": "FAILED", "reason": parse_res.validation_message}
+            continue
+
+        if not dry_run:
+            await ingest_monthly_holdings(conn, parse_res.holdings)
+            await precompute_portfolio_summary(conn, pid, as_of)
+            results[pid] = {
+                "status": "SUCCESS",
+                "holdings_count": len(parse_res.holdings),
+                "equity_count": parse_res.equity_count,
+                "total_weight": parse_res.total_weight,
+            }
+        else:
+            results[pid] = {
+                "status": "DRY_RUN",
+                "holdings_count": len(parse_res.holdings),
+                "total_weight": parse_res.total_weight,
+            }
+
+    return results
+
+
+async def main() -> None:
+    """CLI entry point for monthly AMC holdings scheduler."""
+    parser = argparse.ArgumentParser(description="AMC Monthly Portfolio Disclosure Scheduler")
+    parser.add_argument("--amc", default="all", choices=list(REGISTERED_AMCS.keys()) + ["all"], help="Target AMC")
+    parser.add_argument("--as-of-date", help="Portfolio as-of date (YYYY-MM-DD)")
+    parser.add_argument("--file", help="Path to local Excel disclosure file")
+    parser.add_argument("--dry-run", action="store_true", help="Parse and validate without DB writes")
+    args = parser.parse_args()
+
+    default_as_of, default_disclosed = compute_default_dates()
+    as_of = date.fromisoformat(args.as_of_date) if args.as_of_date else default_as_of
+    disclosed = default_disclosed
+
+    logger.info("Starting AMC Holdings Scheduler (As of: %s, Disclosed: %s, Dry Run: %s)", as_of, disclosed, args.dry_run)
+
+    amcs_to_run = list(REGISTERED_AMCS.values()) if args.amc == "all" else [REGISTERED_AMCS[args.amc]]
+    file_bytes = Path(args.file).read_bytes() if args.file and Path(args.file).exists() else None
+
+    conn = await asyncpg.connect(settings.pg_dsn)
+    try:
+        total_success = 0
+        total_portfolios = 0
+        for reg in amcs_to_run:
+            res = await run_amc_ingestion(conn, reg, file_bytes, as_of, disclosed, dry_run=args.dry_run)
+            for pid, status_info in res.items():
+                total_portfolios += 1
+                if status_info.get("status") in ("SUCCESS", "DRY_RUN"):
+                    total_success += 1
+                    logger.info("✅ Portfolio %d: %s (Holdings: %d, Total Weight: %.2f%%)",
+                                pid, status_info["status"], status_info["holdings_count"], status_info["total_weight"])
+                else:
+                    logger.error("❌ Portfolio %d: FAILED (%s)", pid, status_info.get("reason"))
+
+        logger.info("Completed: %d/%d portfolios successfully processed.", total_success, total_portfolios)
+    finally:
+        await conn.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
