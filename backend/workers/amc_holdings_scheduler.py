@@ -25,19 +25,22 @@ import asyncpg
 
 from app.config import settings
 from workers.holdings_worker import (
-    SAMPLE_PORTFOLIO_HOLDINGS,
-    RawHoldingEntry,
-    ingest_amc_workbook,
     ingest_monthly_holdings,
     precompute_portfolio_summary,
 )
 from workers.parsers import (
-    GenericAMCParser,
+    AxisParser,
+    BandhanParser,
+    DSPParser,
     HDFCParser,
     ICICIPrudentialParser,
+    InvescoParser,
     KotakParser,
     NipponIndiaParser,
+    PPFASParser,
+    QuantParser,
     SBIParser,
+    TataParser,
 )
 
 logger = logging.getLogger("amc_holdings_scheduler")
@@ -59,11 +62,17 @@ REGISTERED_AMCS: dict[str, AMCRegistration] = {
         parser_factory=NipponIndiaParser,
         portfolio_schemes={101: "Small Cap"},
     ),
+    "quant": AMCRegistration(
+        amc_code="quant",
+        amc_name="Quant Mutual Fund",
+        parser_factory=QuantParser,
+        portfolio_schemes={102: "Small Cap"},
+    ),
     "hdfc": AMCRegistration(
         amc_code="hdfc",
         amc_name="HDFC Asset Management",
         parser_factory=HDFCParser,
-        portfolio_schemes={103: "HDFC Small Cap", 109: "HDFC Mid-Cap"},
+        portfolio_schemes={103: "Small Cap", 202: "Flexi Cap"},
     ),
     "icici": AMCRegistration(
         amc_code="icici",
@@ -82,6 +91,42 @@ REGISTERED_AMCS: dict[str, AMCRegistration] = {
         amc_name="Kotak Mahindra AMC",
         parser_factory=KotakParser,
         portfolio_schemes={105: "Small Cap"},
+    ),
+    "axis": AMCRegistration(
+        amc_code="axis",
+        amc_name="Axis Asset Management",
+        parser_factory=AxisParser,
+        portfolio_schemes={106: "Small Cap"},
+    ),
+    "tata": AMCRegistration(
+        amc_code="tata",
+        amc_name="Tata Mutual Fund",
+        parser_factory=TataParser,
+        portfolio_schemes={107: "Small Cap"},
+    ),
+    "bandhan": AMCRegistration(
+        amc_code="bandhan",
+        amc_name="Bandhan Mutual Fund",
+        parser_factory=BandhanParser,
+        portfolio_schemes={108: "Small Cap"},
+    ),
+    "invesco": AMCRegistration(
+        amc_code="invesco",
+        amc_name="Invesco Mutual Fund",
+        parser_factory=InvescoParser,
+        portfolio_schemes={109: "Small Cap"},
+    ),
+    "dsp": AMCRegistration(
+        amc_code="dsp",
+        amc_name="DSP Mutual Fund",
+        parser_factory=DSPParser,
+        portfolio_schemes={110: "Small Cap"},
+    ),
+    "ppfas": AMCRegistration(
+        amc_code="ppfas",
+        amc_name="PPFAS Mutual Fund",
+        parser_factory=PPFASParser,
+        portfolio_schemes={201: "Flexi Cap"},
     ),
 }
 
@@ -111,40 +156,26 @@ async def run_amc_ingestion(
 
     for pid, scheme_filter in registration.portfolio_schemes.items():
         logger.info("Processing %s -> Portfolio ID %d ('%s')", registration.amc_name, pid, scheme_filter)
-        if workbook_data is not None:
+        amc_dir = Path(__file__).resolve().parent.parent / "var" / "data" / "raw" / "holdings" / registration.amc_code
+        scheme_slug = scheme_filter.lower().replace(" ", "_")
+        scheme_path = amc_dir / f"{as_of.isoformat()}_{registration.amc_code}_{scheme_slug}.xlsx"
+
+        curr_data = workbook_data
+        if scheme_path.exists():
+            curr_data = scheme_path.read_bytes()
+
+        if curr_data is not None:
             parse_res = parser.parse_workbook(
-                workbook_data,
+                curr_data,
                 portfolio_id=pid,
                 as_of_date=as_of,
                 disclosed_date=disclosed,
                 scheme_name_filter=scheme_filter,
             )
         else:
-            # Fallback to seeded portfolio holdings if no file provided
-            holdings_list = SAMPLE_PORTFOLIO_HOLDINGS.get(pid, [])
-            entries = [
-                RawHoldingEntry(
-                    portfolio_id=pid,
-                    as_of_date=as_of,
-                    isin=isin,
-                    security_name=name,
-                    asset_type=atype,
-                    sector=sec,
-                    quantity=100000.0,
-                    market_value_lakhs=round(pct * 500.0, 2),
-                    pct_nav=pct,
-                    disclosed_date=disclosed,
-                )
-                for isin, name, atype, sec, pct in holdings_list
-            ]
-            valid, msg = parser.validate_holdings(entries)
-            parse_res = type("Result", (), {
-                "valid": valid,
-                "holdings": entries,
-                "equity_count": sum(1 for e in entries if e.asset_type == "EQUITY"),
-                "total_weight": sum(e.pct_nav for e in entries),
-                "validation_message": msg,
-            })()
+            logger.warning("No authentic disclosure workbook found for %s (PID %d). Skipping per Rule Q16.", registration.amc_name, pid)
+            results[pid] = {"status": "SKIPPED", "reason": "No authentic disclosure workbook found"}
+            continue
 
         if not parse_res.valid:
             logger.warning("Validation failed for portfolio %d: %s", pid, parse_res.validation_message)
@@ -193,7 +224,14 @@ async def main() -> None:
         total_success = 0
         total_portfolios = 0
         for reg in amcs_to_run:
-            res = await run_amc_ingestion(conn, reg, file_bytes, as_of, disclosed, dry_run=args.dry_run)
+            wb_bytes = file_bytes
+            if wb_bytes is None:
+                cached_path = Path(__file__).resolve().parent.parent / "var" / "data" / "raw" / "holdings" / reg.amc_code / f"{as_of.isoformat()}_portfolio.xlsx"
+                if cached_path.exists():
+                    wb_bytes = cached_path.read_bytes()
+                    logger.info("Found cached disclosure file for %s at %s", reg.amc_name, cached_path)
+
+            res = await run_amc_ingestion(conn, reg, wb_bytes, as_of, disclosed, dry_run=args.dry_run)
             for pid, status_info in res.items():
                 total_portfolios += 1
                 if status_info.get("status") in ("SUCCESS", "DRY_RUN"):

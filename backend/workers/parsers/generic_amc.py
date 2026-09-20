@@ -7,12 +7,11 @@ Parses standard SEBI-mandated monthly portfolio workbooks (.xlsx).
 from __future__ import annotations
 
 import io
-from collections.abc import Sequence
 from datetime import date
 from typing import Any
 
 import openpyxl
-from workers.holdings_worker import RawHoldingEntry
+
 from workers.parsers.base import BaseAMCParser, ParsingResult
 
 
@@ -49,6 +48,29 @@ class GenericAMCParser(BaseAMCParser):
                     target_sheet = wb[name]
                     break
 
+        # 2. Check if an Index sheet exists mapping code -> full name (e.g. Nippon India)
+        if target_sheet is None and "Index" in wb.sheetnames and target_filter:
+            idx_ws = wb["Index"]
+            for row in idx_ws.iter_rows(values_only=True):
+                if len(row) >= 2 and row[0] and row[1]:
+                    code_str = str(row[0]).strip()
+                    desc_str = str(row[1]).strip().lower()
+                    if target_filter in desc_str and code_str in wb.sheetnames:
+                        target_sheet = wb[code_str]
+                        break
+
+        # 3. Check sheet title banner / header within top 5 rows (e.g. Quant MF sheets like qSCF)
+        if target_sheet is None and target_filter:
+            for name in wb.sheetnames:
+                ws = wb[name]
+                for r in ws.iter_rows(values_only=True, max_row=5):
+                    row_txt = " ".join(str(c) for c in r if c is not None).lower()
+                    if target_filter in row_txt:
+                        target_sheet = ws
+                        break
+                if target_sheet is not None:
+                    break
+
         if target_sheet is None:
             target_sheet = wb.active or wb.worksheets[0]
 
@@ -56,99 +78,11 @@ class GenericAMCParser(BaseAMCParser):
         for row in target_sheet.iter_rows(values_only=True):
             rows_data.append(list(row))
 
-        if not rows_data:
-            return ParsingResult(
-                holdings=[],
-                total_weight=0.0,
-                equity_count=0,
-                valid=False,
-                validation_message=f"Sheet '{target_sheet.title}' is empty",
-            )
-
-        # 2. Sniff header row (Gate H1)
-        header_map = self.sniff_headers(rows_data)
-
-        # 3. Parse data rows
-        holdings: list[RawHoldingEntry] = []
-        start_row = header_map.header_row_index + 1
-
-        for row in rows_data[start_row:]:
-            if not row or all(c is None for c in row):
-                continue
-
-            raw_name = row[header_map.name_col] if header_map.name_col < len(row) else None
-            if not raw_name:
-                continue
-
-            name_str = str(raw_name).strip()
-            upper_name = name_str.upper()
-
-            # Skip subtotal, total, header, and footer rows
-            if any(k in upper_name for k in ("TOTAL", "SUB TOTAL", "GRAND TOTAL", "PORTFOLIO AS ON", "NOTES:", "DISCLAIMER", "NET ASSETS")):
-                continue
-
-            raw_pct = row[header_map.pct_nav_col] if header_map.pct_nav_col < len(row) else None
-            pct_nav = self.clean_weight(raw_pct)
-            if pct_nav <= 0.0:
-                continue
-
-            raw_isin = row[header_map.isin_col] if header_map.isin_col < len(row) else None
-            cleaned_isin = self.clean_isin(raw_isin)
-
-            raw_sector = (
-                row[header_map.sector_col]
-                if header_map.sector_col is not None and header_map.sector_col < len(row)
-                else None
-            )
-            sector = str(raw_sector).strip() if raw_sector else None
-
-            raw_qty = (
-                row[header_map.quantity_col]
-                if header_map.quantity_col is not None and header_map.quantity_col < len(row)
-                else None
-            )
-            try:
-                quantity = float(raw_qty) if raw_qty is not None else None
-            except (ValueError, TypeError):
-                quantity = None
-
-            raw_mval = (
-                row[header_map.market_value_col]
-                if header_map.market_value_col is not None and header_map.market_value_col < len(row)
-                else None
-            )
-            try:
-                mval = float(raw_mval) if raw_mval is not None else None
-            except (ValueError, TypeError):
-                mval = None
-
-            asset_type = self.detect_asset_type(name_str, cleaned_isin, sector)
-
-            holdings.append(
-                RawHoldingEntry(
-                    portfolio_id=portfolio_id,
-                    as_of_date=as_of_date,
-                    isin=cleaned_isin,
-                    security_name=name_str,
-                    asset_type=asset_type,
-                    sector=sector,
-                    quantity=quantity,
-                    market_value_lakhs=mval,
-                    pct_nav=pct_nav,
-                    disclosed_date=disclosed_date,
-                )
-            )
-
-        valid, msg = self.validate_holdings(holdings)
-        total_w = round(sum(h.pct_nav for h in holdings), 4)
-        eq_count = sum(1 for h in holdings if h.asset_type == "EQUITY")
-
-        return ParsingResult(
-            holdings=holdings,
-            total_weight=total_w,
-            equity_count=eq_count,
-            valid=valid,
-            validation_message=msg,
+        return self.parse_sheet_rows(
+            rows_data=rows_data,
+            portfolio_id=portfolio_id,
+            as_of_date=as_of_date,
+            disclosed_date=disclosed_date,
         )
 
 
@@ -178,3 +112,53 @@ class KotakParser(GenericAMCParser):
 
     def __init__(self, default_scheme_filter: str | None = "Small Cap"):
         super().__init__(amc_code="KOTAK", default_scheme_filter=default_scheme_filter)
+
+
+class QuantParser(GenericAMCParser):
+    """Parser for Quant Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="QUANT", default_scheme_filter=default_scheme_filter)
+
+
+class AxisParser(GenericAMCParser):
+    """Parser for Axis Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="AXIS", default_scheme_filter=default_scheme_filter)
+
+
+class PPFASParser(GenericAMCParser):
+    """Parser for PPFAS Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Flexi Cap"):
+        super().__init__(amc_code="PPFAS", default_scheme_filter=default_scheme_filter)
+
+
+class TataParser(GenericAMCParser):
+    """Parser for Tata Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="TATA", default_scheme_filter=default_scheme_filter)
+
+
+class BandhanParser(GenericAMCParser):
+    """Parser for Bandhan Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="BANDHAN", default_scheme_filter=default_scheme_filter)
+
+
+class InvescoParser(GenericAMCParser):
+    """Parser for Invesco Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="INVESCO", default_scheme_filter=default_scheme_filter)
+
+
+class DSPParser(GenericAMCParser):
+    """Parser for DSP Mutual Fund monthly portfolio disclosures."""
+
+    def __init__(self, default_scheme_filter: str | None = "Small Cap"):
+        super().__init__(amc_code="DSP", default_scheme_filter=default_scheme_filter)
+

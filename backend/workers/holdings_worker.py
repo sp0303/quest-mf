@@ -9,12 +9,15 @@ In accordance with:
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Sequence
+from pathlib import Path
+from typing import Any
 
 import asyncpg
 
@@ -22,6 +25,8 @@ from app.config import settings
 
 logger = logging.getLogger("holdings_worker")
 logging.basicConfig(level=logging.INFO)
+
+RAW_HOLDINGS_DIR = Path(__file__).resolve().parent.parent / "var" / "data" / "raw" / "holdings"
 
 
 @dataclass(frozen=True)
@@ -126,27 +131,27 @@ async def precompute_portfolio_summary(
     top_10_list: list[dict[str, Any]] = []
     disclosed_date = holdings_rows[0]["disclosed_date"]
 
-    for idx, r in enumerate(holdings_rows):
+    for _idx, r in enumerate(holdings_rows):
         pct = float(r["pct_nav"])
         asset_type = r["asset_type"]
         sector = r["sector"] or "Others"
         cap_class = r["market_cap_class"]
 
-        if idx < 10:
-            top_10_sum += pct
-            top_10_list.append(
-                {
-                    "isin": r["isin"],
-                    "security_name": r["security_name"],
-                    "pct_nav": round(pct, 2),
-                    "sector": sector,
-                    "cap_class": cap_class,
-                }
-            )
-
         if asset_type == "EQUITY":
             equity_count += 1
             sector_sums[sector] += pct
+            if len(top_10_list) < 10:
+                top_10_sum += pct
+                top_10_list.append(
+                    {
+                        "isin": r["isin"],
+                        "security_name": r["security_name"],
+                        "pct_nav": round(pct, 2),
+                        "sector": sector,
+                        "cap_class": cap_class,
+                    }
+                )
+
             if cap_class == "LARGE_CAP":
                 large_cap_pct += pct
             elif cap_class == "MID_CAP":
@@ -332,6 +337,17 @@ SAMPLE_FUND_PROFILES: list[FundProfileEntry] = [
         min_sip_amount=100,
     ),
     FundProfileEntry(
+        portfolio_id=102,
+        fund_manager="Sandeep Tandon & Ankit Pande",
+        aum_cr=26800.0,
+        ter_pct=0.77,
+        portfolio_turnover_ratio=84.0,
+        pe_ratio=21.2,
+        pb_ratio=3.4,
+        riskometer="Very High",
+        min_sip_amount=1000,
+    ),
+    FundProfileEntry(
         portfolio_id=103,
         fund_manager="Chirag Setalvad",
         aum_cr=34100.0,
@@ -343,15 +359,103 @@ SAMPLE_FUND_PROFILES: list[FundProfileEntry] = [
         min_sip_amount=500,
     ),
     FundProfileEntry(
-        portfolio_id=111,
+        portfolio_id=104,
+        fund_manager="R. Srinivasan",
+        aum_cr=31200.0,
+        ter_pct=0.72,
+        portfolio_turnover_ratio=21.0,
+        pe_ratio=25.1,
+        pb_ratio=3.9,
+        riskometer="Very High",
+        min_sip_amount=500,
+    ),
+    FundProfileEntry(
+        portfolio_id=105,
+        fund_manager="Pankaj Tibrewal",
+        aum_cr=17500.0,
+        ter_pct=0.65,
+        portfolio_turnover_ratio=26.0,
+        pe_ratio=24.0,
+        pb_ratio=3.7,
+        riskometer="Very High",
+        min_sip_amount=500,
+    ),
+    FundProfileEntry(
+        portfolio_id=106,
+        fund_manager="Shreyash Devalkar",
+        aum_cr=22400.0,
+        ter_pct=0.58,
+        portfolio_turnover_ratio=19.0,
+        pe_ratio=26.2,
+        pb_ratio=4.1,
+        riskometer="Very High",
+        min_sip_amount=100,
+    ),
+    FundProfileEntry(
+        portfolio_id=107,
+        fund_manager="Chandraprakash Padiyar",
+        aum_cr=8200.0,
+        ter_pct=0.62,
+        portfolio_turnover_ratio=24.0,
+        pe_ratio=22.8,
+        pb_ratio=3.3,
+        riskometer="Very High",
+        min_sip_amount=100,
+    ),
+    FundProfileEntry(
+        portfolio_id=108,
+        fund_manager="Manish Gunwani",
+        aum_cr=5400.0,
+        ter_pct=0.55,
+        portfolio_turnover_ratio=38.0,
+        pe_ratio=20.9,
+        pb_ratio=3.1,
+        riskometer="Very High",
+        min_sip_amount=100,
+    ),
+    FundProfileEntry(
+        portfolio_id=109,
+        fund_manager="Taher Badshah",
+        aum_cr=4900.0,
+        ter_pct=0.64,
+        portfolio_turnover_ratio=29.0,
+        pe_ratio=23.5,
+        pb_ratio=3.6,
+        riskometer="Very High",
+        min_sip_amount=500,
+    ),
+    FundProfileEntry(
+        portfolio_id=110,
+        fund_manager="Resham Jain & Vinit Sambre",
+        aum_cr=15800.0,
+        ter_pct=0.74,
+        portfolio_turnover_ratio=23.0,
+        pe_ratio=24.5,
+        pb_ratio=3.8,
+        riskometer="Very High",
+        min_sip_amount=500,
+    ),
+    FundProfileEntry(
+        portfolio_id=201,
         fund_manager="Rajeev Thakkar & Raunak Onkar",
-        aum_cr=62500.0,
+        aum_cr=68500.0,
         ter_pct=0.62,
         portfolio_turnover_ratio=14.0,
         pe_ratio=22.4,
         pb_ratio=3.2,
         riskometer="Very High",
         min_sip_amount=1000,
+    ),
+    FundProfileEntry(
+        portfolio_id=202,
+        fund_manager="Roshi Jain",
+        aum_cr=59200.0,
+        ter_pct=0.75,
+        portfolio_turnover_ratio=34.0,
+        pe_ratio=21.8,
+        pb_ratio=3.1,
+        riskometer="Very High",
+        min_sip_amount=100,
     ),
     FundProfileEntry(
         portfolio_id=113,
@@ -367,38 +471,57 @@ SAMPLE_FUND_PROFILES: list[FundProfileEntry] = [
 ]
 
 
-async def seed_sample_holdings(as_of: date = date(2026, 8, 31)) -> None:
-    """Seed sample holdings and summaries into database."""
+async def ingest_all_amc_disclosures(as_of: date = date(2026, 8, 31)) -> dict[str, Any]:
+    """Ingest authentic downloaded monthly portfolio workbooks for registered AMCs."""
     conn = await asyncpg.connect(settings.pg_dsn)
     try:
-        disclosed = date(2026, 9, 10)
-        for pid, holdings in SAMPLE_PORTFOLIO_HOLDINGS.items():
-            entries = [
-                RawHoldingEntry(
-                    portfolio_id=pid,
-                    as_of_date=as_of,
-                    isin=isin,
-                    security_name=name,
-                    asset_type=atype,
-                    sector=sec,
-                    quantity=100000.0,
-                    market_value_lakhs=round(pct * 500.0, 2),
-                    pct_nav=pct,
-                    disclosed_date=disclosed,
-                )
-                for isin, name, atype, sec, pct in holdings
-            ]
-            await ingest_monthly_holdings(conn, entries)
-            await precompute_portfolio_summary(conn, pid, as_of)
+        disclosed = date(as_of.year, as_of.month + 1 if as_of.month < 12 else 1, 10)
+        from workers.parsers.generic_amc import HDFCParser, PPFASParser, QuantParser, SBIParser
+        from workers.parsers.nippon import NipponIndiaParser
+
+        plans = [
+            ("PPFAS Flexi Cap", PPFASParser(), RAW_HOLDINGS_DIR / "ppfas" / f"{as_of.isoformat()}_portfolio.xlsx", 201, "Flexi Cap"),
+            ("Nippon Small Cap", NipponIndiaParser(), RAW_HOLDINGS_DIR / "nippon" / f"{as_of.isoformat()}_portfolio.xlsx", 101, "Small Cap"),
+            ("HDFC Small Cap", HDFCParser(), RAW_HOLDINGS_DIR / "hdfc" / f"{as_of.isoformat()}_hdfc_small_cap.xlsx", 103, "Small Cap"),
+            ("HDFC Flexi Cap", HDFCParser(), RAW_HOLDINGS_DIR / "hdfc" / f"{as_of.isoformat()}_hdfc_flexi_cap.xlsx", 202, "Flexi Cap"),
+            ("SBI Small Cap", SBIParser(), RAW_HOLDINGS_DIR / "sbi" / f"{as_of.isoformat()}_portfolio.xlsx", 104, "Small Cap"),
+            ("Quant Small Cap", QuantParser(), RAW_HOLDINGS_DIR / "quant" / f"{as_of.isoformat()}_portfolio.xlsx", 102, "Small Cap"),
+        ]
+
+        results = {}
+        for label, parser, file_path, pid, filter_name in plans:
+            if not file_path.exists():
+                logger.warning("Disclosure file not found for %s at %s", label, file_path)
+                continue
+            logger.info("Ingesting authentic disclosure for %s (PID %d)...", label, pid)
+            with open(file_path, "rb") as f:
+                data = f.read()
+            res = await ingest_amc_workbook(
+                conn,
+                amc_parser=parser,
+                workbook_data=io.BytesIO(data),
+                portfolio_id=pid,
+                as_of_date=as_of,
+                disclosed_date=disclosed,
+                scheme_filter=filter_name,
+            )
+            results[label] = {
+                "portfolio_id": pid,
+                "valid": res.valid,
+                "holdings_count": len(res.holdings),
+                "total_weight": res.total_weight,
+                "equities_count": res.equity_count,
+            }
 
         for prof in SAMPLE_FUND_PROFILES:
             await upsert_fund_profile(conn, prof)
 
-        logger.info("Successfully seeded holdings and profiles.")
+        logger.info("Ingestion completed for %d portfolios.", len(results))
+        return results
     finally:
         await conn.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(seed_sample_holdings())
+    asyncio.run(ingest_all_amc_disclosures())
 

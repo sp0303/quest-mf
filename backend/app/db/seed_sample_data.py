@@ -188,6 +188,20 @@ SAMPLE_FUNDS = [
         "exit_load": 0.01,
         "exit_days": 365,
     },
+    {
+        "portfolio_id": 113,
+        "name": "ICICI Prudential Bluechip Fund",
+        "amc": "ICICI Prudential Mutual Fund",
+        "category_code": "EQ_LARGE_CAP",
+        "benchmark": "NIFTY_50_TRI",
+        "ter": 0.0088,
+        "aum_cr": 55200.0,
+        "base_nav": 85.0,
+        "drift": 0.00068,
+        "vol": 0.0082,
+        "exit_load": 0.01,
+        "exit_days": 365,
+    },
 ]
 
 
@@ -304,12 +318,17 @@ async def seed_data():
                 f_navs.append(nav)
                 nav_records.append((scheme_code, d, round(nav, 6), 1, 0))
 
-            await conn.copy_records_to_table(
-                "nav_history",
-                records=nav_records,
-                schema_name="market",
-                columns=["scheme_code", "nav_date", "nav", "ingest_id", "revision"],
+            existing_cnt = await conn.fetchval(
+                "SELECT count(*) FROM market.nav_history WHERE scheme_code = $1;",
+                scheme_code,
             )
+            if existing_cnt == 0:
+                await conn.copy_records_to_table(
+                    "nav_history",
+                    records=nav_records,
+                    schema_name="market",
+                    columns=["scheme_code", "nav_date", "nav", "ingest_id", "revision"],
+                )
 
             # Calculate rolling returns & metrics for screener snapshot
             r_1m = simple_return(f_navs[-22], f_navs[-1])

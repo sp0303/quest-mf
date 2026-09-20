@@ -527,8 +527,8 @@ async def ingest_amfi_and_historical(
             await conn.execute(
                 """
                 INSERT INTO ref.category_history (portfolio_id, valid_from, valid_to, category_id, mapping_confidence)
-                VALUES ($1, '2018-01-01', '9999-12-31', $2, 1.0)
-                ON CONFLICT DO NOTHING;
+                SELECT $1, '2018-01-01'::date, '9999-12-31'::date, $2::smallint, 1.0::real
+                WHERE NOT EXISTS (SELECT 1 FROM ref.category_history WHERE portfolio_id = $1);
                 """,
                 pid,
                 s.category_id,
@@ -655,4 +655,21 @@ async def ingest_amfi_and_historical(
 
 
 if __name__ == "__main__":
-    asyncio.run(ingest_amfi_and_historical(concurrency=5))
+    import argparse
+
+    parser = argparse.ArgumentParser(description="AMFI and MFAPI Ingestion Worker")
+    parser.add_argument(
+        "--max-history",
+        type=int,
+        default=0,
+        help="Max schemes for deep MFAPI multi-year history (0 = delta/today only)",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=5,
+        help="Concurrency for parallel MFAPI fetches",
+    )
+    args = parser.parse_args()
+    asyncio.run(ingest_amfi_and_historical(max_history_schemes=args.max_history, concurrency=args.concurrency))
+

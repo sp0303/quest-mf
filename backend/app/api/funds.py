@@ -211,6 +211,7 @@ async def get_fund_overlap(
             SELECT isin, security_name, pct_nav, sector, as_of_date
             FROM holdings.monthly_portfolio
             WHERE portfolio_id = $1
+            AND asset_type = 'EQUITY'
             AND as_of_date = (
                 SELECT max(as_of_date) FROM holdings.monthly_portfolio WHERE portfolio_id = $1
             );
