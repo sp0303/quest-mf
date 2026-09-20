@@ -219,12 +219,16 @@ async def ingest_amc_workbook(
         scheme_name_filter=scheme_filter,
     )
     if not result.valid:
-        logger.error("AMC parse failed for portfolio %d: %s", portfolio_id, result.validation_message)
+        logger.error(
+            "AMC parse failed for portfolio %d: %s", portfolio_id, result.validation_message
+        )
         return result
 
     await ingest_monthly_holdings(conn, result.holdings)
     await precompute_portfolio_summary(conn, portfolio_id, as_of_date)
-    logger.info("Successfully ingested %d holdings for portfolio %d.", len(result.holdings), portfolio_id)
+    logger.info(
+        "Successfully ingested %d holdings for portfolio %d.", len(result.holdings), portfolio_id
+    )
     return result
 
 
@@ -476,16 +480,113 @@ async def ingest_all_amc_disclosures(as_of: date = date(2026, 8, 31)) -> dict[st
     conn = await asyncpg.connect(settings.pg_dsn)
     try:
         disclosed = date(as_of.year, as_of.month + 1 if as_of.month < 12 else 1, 10)
-        from workers.parsers.generic_amc import HDFCParser, PPFASParser, QuantParser, SBIParser
+        from workers.parsers.generic_amc import (
+            AxisParser,
+            BandhanParser,
+            DSPParser,
+            HDFCParser,
+            ICICIPrudentialParser,
+            InvescoParser,
+            KotakParser,
+            PPFASParser,
+            QuantParser,
+            SBIParser,
+            TataParser,
+        )
         from workers.parsers.nippon import NipponIndiaParser
 
         plans = [
-            ("PPFAS Flexi Cap", PPFASParser(), RAW_HOLDINGS_DIR / "ppfas" / f"{as_of.isoformat()}_portfolio.xlsx", 201, "Flexi Cap"),
-            ("Nippon Small Cap", NipponIndiaParser(), RAW_HOLDINGS_DIR / "nippon" / f"{as_of.isoformat()}_portfolio.xlsx", 101, "Small Cap"),
-            ("HDFC Small Cap", HDFCParser(), RAW_HOLDINGS_DIR / "hdfc" / f"{as_of.isoformat()}_hdfc_small_cap.xlsx", 103, "Small Cap"),
-            ("HDFC Flexi Cap", HDFCParser(), RAW_HOLDINGS_DIR / "hdfc" / f"{as_of.isoformat()}_hdfc_flexi_cap.xlsx", 202, "Flexi Cap"),
-            ("SBI Small Cap", SBIParser(), RAW_HOLDINGS_DIR / "sbi" / f"{as_of.isoformat()}_portfolio.xlsx", 104, "Small Cap"),
-            ("Quant Small Cap", QuantParser(), RAW_HOLDINGS_DIR / "quant" / f"{as_of.isoformat()}_portfolio.xlsx", 102, "Small Cap"),
+            (
+                "PPFAS Flexi Cap",
+                PPFASParser(),
+                RAW_HOLDINGS_DIR / "ppfas" / f"{as_of.isoformat()}_portfolio.xlsx",
+                201,
+                "Flexi Cap",
+            ),
+            (
+                "Nippon Small Cap",
+                NipponIndiaParser(),
+                RAW_HOLDINGS_DIR / "nippon" / f"{as_of.isoformat()}_portfolio.xlsx",
+                101,
+                "Small Cap",
+            ),
+            (
+                "HDFC Small Cap",
+                HDFCParser(),
+                RAW_HOLDINGS_DIR / "hdfc" / f"{as_of.isoformat()}_hdfc_small_cap.xlsx",
+                103,
+                "Small Cap",
+            ),
+            (
+                "HDFC Flexi Cap",
+                HDFCParser(),
+                RAW_HOLDINGS_DIR / "hdfc" / f"{as_of.isoformat()}_hdfc_flexi_cap.xlsx",
+                202,
+                "Flexi Cap",
+            ),
+            (
+                "SBI Small Cap",
+                SBIParser(),
+                RAW_HOLDINGS_DIR / "sbi" / f"{as_of.isoformat()}_portfolio.xlsx",
+                104,
+                "Small Cap",
+            ),
+            (
+                "Quant Small Cap",
+                QuantParser(),
+                RAW_HOLDINGS_DIR / "quant" / f"{as_of.isoformat()}_portfolio.xlsx",
+                102,
+                "Small Cap",
+            ),
+            (
+                "Tata Small Cap",
+                TataParser(),
+                RAW_HOLDINGS_DIR / "tata" / f"{as_of.isoformat()}_portfolio.xlsx",
+                107,
+                "Small Cap",
+            ),
+            (
+                "Axis Small Cap",
+                AxisParser(),
+                RAW_HOLDINGS_DIR / "axis" / f"{as_of.isoformat()}_portfolio.xlsx",
+                106,
+                "Small Cap",
+            ),
+            (
+                "Kotak Small Cap",
+                KotakParser(),
+                RAW_HOLDINGS_DIR / "kotak" / f"{as_of.isoformat()}_portfolio.xlsx",
+                105,
+                "Small Cap",
+            ),
+            (
+                "DSP Small Cap",
+                DSPParser(),
+                RAW_HOLDINGS_DIR / "dsp" / f"{as_of.isoformat()}_portfolio.xlsx",
+                110,
+                "Small Cap",
+            ),
+            (
+                "ICICI Prudential Bluechip",
+                ICICIPrudentialParser(),
+                RAW_HOLDINGS_DIR / "icici" / f"{as_of.isoformat()}_portfolio.xlsx",
+                113,
+                "Bluechip",
+            ),
+            (
+                "Bandhan Small Cap",
+                BandhanParser(),
+                RAW_HOLDINGS_DIR / "bandhan" / f"{as_of.isoformat()}_portfolio.xlsx",
+                108,
+                "Small Cap",
+            ),
+            (
+                "Invesco Small Cap",
+                InvescoParser(),
+                RAW_HOLDINGS_DIR / "invesco" / f"{as_of.isoformat()}_portfolio.xlsx",
+                109,
+                "Small Cap",
+            ),
         ]
 
         results = {}
@@ -524,4 +625,3 @@ async def ingest_all_amc_disclosures(as_of: date = date(2026, 8, 31)) -> dict[st
 
 if __name__ == "__main__":
     asyncio.run(ingest_all_amc_disclosures())
-

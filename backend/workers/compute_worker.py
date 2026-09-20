@@ -228,18 +228,24 @@ async def run_compute_job() -> None:
             mdd, _, _ = max_drawdown(navs)
 
             # Rule Q3/Q4/Q12: Pure calendar-window returns with EOM clipping and boundary rule
-            def get_cal_return(months: int) -> float | None:
-                target_start = resolve_calendar_start_date(end_date, months)
+            def get_cal_return(
+                months: int,
+                _end_d=end_date,
+                _end_n=end_nav,
+                _all_dates=dates,
+                _nbd=nav_by_date,
+            ) -> float | None:
+                target_start = resolve_calendar_start_date(_end_d, months)
                 start_d = find_boundary_nav_date(
-                    target_start, dates, max_staleness_days=MAX_WINDOW_STALENESS_DAYS
+                    target_start, _all_dates, max_staleness_days=MAX_WINDOW_STALENESS_DAYS
                 )
                 if start_d is None:
                     return None
-                start_n = nav_by_date[start_d]
+                start_n = _nbd[start_d]
                 if months >= 12:
-                    span_days = float((end_date - start_d).days)
-                    return cagr(start_n, end_nav, days=span_days) if span_days >= 365.0 else None
-                return simple_return(start_n, end_nav)
+                    span_days = float((_end_d - start_d).days)
+                    return cagr(start_n, _end_n, days=span_days) if span_days >= 365.0 else None
+                return simple_return(start_n, _end_n)
 
             r_1m = get_cal_return(1)
             r_3m = get_cal_return(3)
@@ -258,7 +264,9 @@ async def run_compute_job() -> None:
                     hist_end_d = dates[hist_end_idx]
                     hist_target_start = resolve_calendar_start_date(hist_end_d, 3)
                     hist_start_d = find_boundary_nav_date(
-                        hist_target_start, dates[: hist_end_idx + 1], max_staleness_days=MAX_WINDOW_STALENESS_DAYS
+                        hist_target_start,
+                        dates[: hist_end_idx + 1],
+                        max_staleness_days=MAX_WINDOW_STALENESS_DAYS,
                     )
                     if hist_start_d is not None and hist_start_d in nav_by_date:
                         rolling_3m_history.append(
@@ -495,8 +503,7 @@ async def run_compute_job() -> None:
                 computed_pids,
             )
             await conn.execute(
-                "DELETE FROM analytics.fund_summary "
-                "WHERE NOT (portfolio_id = ANY($1::int[]));",
+                "DELETE FROM analytics.fund_summary WHERE NOT (portfolio_id = ANY($1::int[]));",
                 computed_pids,
             )
 

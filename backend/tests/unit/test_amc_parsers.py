@@ -28,7 +28,15 @@ def test_gate_h1_header_sniffing():
         ["Portfolio as on August 31, 2026"],
         [],
         ["Notes: Past performance is not an indicator of future returns"],
-        ["Sr No", "ISIN", "Name of the Instrument", "Rating / Industry", "Quantity", "Market Value (Rs. in Lakhs)", "% to NAV"],
+        [
+            "Sr No",
+            "ISIN",
+            "Name of the Instrument",
+            "Rating / Industry",
+            "Quantity",
+            "Market Value (Rs. in Lakhs)",
+            "% to NAV",
+        ],
         [1, "INE002A01018", "Reliance Industries", "Energy", 1000, 25.0, 4.5],
     ]
     mapping_offset = BaseAMCParser.sniff_headers(rows_offset)
@@ -37,10 +45,16 @@ def test_gate_h1_header_sniffing():
     assert mapping_offset.name_col == 2
     assert mapping_offset.pct_nav_col == 6
 
-
     # Scenario 3: Real AMC layout with embedded newlines in header cells (e.g. PPFAS, SBI)
     rows_newlines = [
-        ["ISIN", "Name of the\nInstrument", "Industry / Rating", "Quantity", "Market/Fair Value\n (Rs. in Lakhs)", "% to Net\n Assets"],
+        [
+            "ISIN",
+            "Name of the\nInstrument",
+            "Industry / Rating",
+            "Quantity",
+            "Market/Fair Value\n (Rs. in Lakhs)",
+            "% to Net\n Assets",
+        ],
         ["INE002A01018", "Reliance Industries", "Energy", 1000, 25.0, 4.5],
     ]
     mapping_nl = BaseAMCParser.sniff_headers(rows_newlines)
@@ -95,7 +109,6 @@ def test_gate_h3_decimal_fraction_autoscaling():
     assert res.total_weight == 96.50
 
 
-
 def test_gate_h4_weight_bounds_validation():
     from workers.holdings_worker import RawHoldingEntry
 
@@ -105,7 +118,9 @@ def test_gate_h4_weight_bounds_validation():
     # Valid portfolio ~98.5%
     holdings_valid = [
         RawHoldingEntry(101, d1, "INE002A01018", "Reliance", "EQUITY", "Energy", 100, 10, 50.0, d2),
-        RawHoldingEntry(101, d1, "INE040A01034", "HDFC Bank", "EQUITY", "Finance", 100, 10, 48.5, d2),
+        RawHoldingEntry(
+            101, d1, "INE040A01034", "HDFC Bank", "EQUITY", "Finance", 100, 10, 48.5, d2
+        ),
     ]
     valid, msg = BaseAMCParser.validate_holdings(holdings_valid)
     assert valid is True
@@ -123,7 +138,10 @@ def test_gate_h5_asset_classification():
     assert BaseAMCParser.detect_asset_type("Reliance Industries Ltd", "INE002A01018") == "EQUITY"
     assert BaseAMCParser.detect_asset_type("TREPS - Triparty Repo", None) == "TREPS_CASH"
     assert BaseAMCParser.detect_asset_type("Reverse Repo Lending", None) == "TREPS_CASH"
-    assert BaseAMCParser.detect_asset_type("7.18% GOI 2033", "IN0020230085", "Government Bond") == "DEBT"
+    assert (
+        BaseAMCParser.detect_asset_type("7.18% GOI 2033", "IN0020230085", "Government Bond")
+        == "DEBT"
+    )
 
 
 def test_nippon_end_to_end_workbook_parsing():
@@ -139,19 +157,34 @@ def test_nippon_end_to_end_workbook_parsing():
     ws.append([])
 
     # Header row (Gate H1)
-    ws.append([
-        "ISIN",
-        "Name of Instrument",
-        "Industry / Rating",
-        "Quantity",
-        "Market Value (Rs. in Lakhs)",
-        "% to Net Assets",
-    ])
+    ws.append(
+        [
+            "ISIN",
+            "Name of Instrument",
+            "Industry / Rating",
+            "Quantity",
+            "Market Value (Rs. in Lakhs)",
+            "% to Net Assets",
+        ]
+    )
 
     # Equity holdings
-    ws.append(["INE548C01032", "Suzlon Energy Ltd", "Heavy Electrical Equipment", 2500000, 15000.0, 4.25])
-    ws.append(["INE429C01035", "Titagarh Rail Systems Ltd", "Railway Wagons", 850000, 12000.0, 3.85])
-    ws.append(["INE705A01016", "Kalyan Jewellers India Ltd", "Gems Jewellery & Watches", 1200000, 11000.0, 3.50])
+    ws.append(
+        ["INE548C01032", "Suzlon Energy Ltd", "Heavy Electrical Equipment", 2500000, 15000.0, 4.25]
+    )
+    ws.append(
+        ["INE429C01035", "Titagarh Rail Systems Ltd", "Railway Wagons", 850000, 12000.0, 3.85]
+    )
+    ws.append(
+        [
+            "INE705A01016",
+            "Kalyan Jewellers India Ltd",
+            "Gems Jewellery & Watches",
+            1200000,
+            11000.0,
+            3.50,
+        ]
+    )
     ws.append(["INE285J01028", "Marksans Pharma Ltd", "Pharmaceuticals", 1500000, 9500.0, 3.10])
     ws.append(["INE053F01010", "Federal Bank Ltd", "Banks", 1400000, 8900.0, 2.90])
     ws.append([None, "TREPS / Reverse Repo Cash", "Cash & Cash Equivalents", None, 25000.0, 78.50])
@@ -192,18 +225,40 @@ def test_hdfc_and_icici_end_to_end_parsing():
     ws_hdfc.append(["HDFC Asset Management Company Limited"])
     ws_hdfc.append(["Monthly Portfolio as on August 31, 2026"])
     ws_hdfc.append([])
-    ws_hdfc.append(["ISIN", "Name of the Instrument", "Rating / Industry", "Quantity", "Market Value (Rs. in Lakhs)", "% to NAV"])
+    ws_hdfc.append(
+        [
+            "ISIN",
+            "Name of the Instrument",
+            "Rating / Industry",
+            "Quantity",
+            "Market Value (Rs. in Lakhs)",
+            "% to NAV",
+        ]
+    )
     ws_hdfc.append(["INE053F01010", "Federal Bank Ltd", "Banks", 1200000, 18000.0, 5.20])
-    ws_hdfc.append(["INE705A01016", "Kalyan Jewellers India Ltd", "Gems & Jewellery", 900000, 15000.0, 4.30])
+    ws_hdfc.append(
+        ["INE705A01016", "Kalyan Jewellers India Ltd", "Gems & Jewellery", 900000, 15000.0, 4.30]
+    )
     ws_hdfc.append([None, "TREPS / Net Receivables", "Cash", None, 30000.0, 89.50])
 
     ws_icici = wb.create_sheet(title="ICICI Prudential Bluechip Fund")
     ws_icici.append(["ICICI Prudential Asset Management Company"])
     ws_icici.append(["Monthly Portfolio as on August 31, 2026"])
     ws_icici.append([])
-    ws_icici.append(["ISIN", "Company Name / Instrument", "Industry", "Quantity", "Market Value", "% to Net Assets"])
+    ws_icici.append(
+        [
+            "ISIN",
+            "Company Name / Instrument",
+            "Industry",
+            "Quantity",
+            "Market Value",
+            "% to Net Assets",
+        ]
+    )
     ws_icici.append(["INE090A01021", "ICICI Bank Ltd", "Banks", 1500000, 35000.0, 9.40])
-    ws_icici.append(["INE002A01018", "Reliance Industries Ltd", "Petroleum Products", 800000, 32000.0, 8.80])
+    ws_icici.append(
+        ["INE002A01018", "Reliance Industries Ltd", "Petroleum Products", 800000, 32000.0, 8.80]
+    )
     ws_icici.append([None, "Cash & Equivalents", "Cash", None, 28000.0, 80.50])
 
     buf = io.BytesIO()
@@ -215,7 +270,9 @@ def test_hdfc_and_icici_end_to_end_parsing():
 
     # Test HDFC parser
     hdfc_parser = HDFCParser()
-    res_hdfc = hdfc_parser.parse_workbook(buf, portfolio_id=103, as_of_date=as_of, disclosed_date=disclosed)
+    res_hdfc = hdfc_parser.parse_workbook(
+        buf, portfolio_id=103, as_of_date=as_of, disclosed_date=disclosed
+    )
     assert res_hdfc.valid is True
     assert res_hdfc.equity_count == 2
     assert res_hdfc.total_weight == 99.0
@@ -224,7 +281,9 @@ def test_hdfc_and_icici_end_to_end_parsing():
     # Test ICICI parser
     buf.seek(0)
     icici_parser = ICICIPrudentialParser()
-    res_icici = icici_parser.parse_workbook(buf, portfolio_id=113, as_of_date=as_of, disclosed_date=disclosed)
+    res_icici = icici_parser.parse_workbook(
+        buf, portfolio_id=113, as_of_date=as_of, disclosed_date=disclosed
+    )
     assert res_icici.valid is True
     assert res_icici.equity_count == 2
     assert res_icici.total_weight == 98.70

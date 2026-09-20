@@ -1,7 +1,6 @@
 """Unit tests for portfolio overlap engine."""
 
 from questmf_quant.portfolio.overlap import (
-    CommonHolding,
     HoldingItem,
     compute_portfolio_overlap,
     compute_weights_overlap,
@@ -51,14 +50,22 @@ def test_identical_portfolios():
 def test_partial_overlap_and_ordering():
     holdings_a = [
         HoldingItem(identifier="INE002A01018", name="Reliance", weight=10.0, sector="Energy"),
-        HoldingItem(identifier="INE040A01034", name="HDFC Bank", weight=8.0, sector="Financial Services"),
+        HoldingItem(
+            identifier="INE040A01034", name="HDFC Bank", weight=8.0, sector="Financial Services"
+        ),
         HoldingItem(identifier="INE009A01021", name="Infosys", weight=6.0, sector="IT"),
-        HoldingItem(identifier="INE238A01034", name="Axis Bank", weight=4.0, sector="Financial Services"),
+        HoldingItem(
+            identifier="INE238A01034", name="Axis Bank", weight=4.0, sector="Financial Services"
+        ),
     ]
     holdings_b = [
         HoldingItem(identifier="INE002A01018", name="Reliance", weight=6.0, sector="Energy"),
-        HoldingItem(identifier="INE040A01034", name="HDFC Bank", weight=9.0, sector="Financial Services"),
-        HoldingItem(identifier="INE090A01021", name="ICICI Bank", weight=7.0, sector="Financial Services"),
+        HoldingItem(
+            identifier="INE040A01034", name="HDFC Bank", weight=9.0, sector="Financial Services"
+        ),
+        HoldingItem(
+            identifier="INE090A01021", name="ICICI Bank", weight=7.0, sector="Financial Services"
+        ),
         HoldingItem(identifier="INE009A01021", name="Infosys", weight=2.0, sector="IT"),
     ]
 

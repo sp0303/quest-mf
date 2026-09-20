@@ -450,11 +450,15 @@ async def seed_data():
 
         # Seed AMFI market caps and portfolio holdings
         try:
-            from workers.amfi_marketcap_worker import BASELINE_SECURITIES, StockMarketCapEntry, upsert_market_caps
+            from workers.amfi_marketcap_worker import (
+                BASELINE_SECURITIES,
+                StockMarketCapEntry,
+                upsert_market_caps,
+            )
             from workers.holdings_worker import (
-                RawHoldingEntry,
                 SAMPLE_FUND_PROFILES,
                 SAMPLE_PORTFOLIO_HOLDINGS,
+                RawHoldingEntry,
                 ingest_monthly_holdings,
                 precompute_portfolio_summary,
                 upsert_fund_profile,

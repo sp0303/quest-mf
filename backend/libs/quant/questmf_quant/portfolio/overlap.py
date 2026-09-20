@@ -70,8 +70,7 @@ def compute_weights_overlap(
 
     common_keys = set(weights_a.keys()) & set(weights_b.keys())
     total_overlap = sum(
-        min(max(0.0, float(weights_a[k])), max(0.0, float(weights_b[k])))
-        for k in common_keys
+        min(max(0.0, float(weights_a[k])), max(0.0, float(weights_b[k]))) for k in common_keys
     )
     return round(total_overlap, 4)
 

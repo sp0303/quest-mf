@@ -4,6 +4,7 @@ import io
 from datetime import date
 
 import openpyxl
+
 from workers.amfi_marketcap_worker import AMFIMarketCapParser
 
 
@@ -18,14 +19,16 @@ def test_amfi_marketcap_workbook_parsing():
     ws.append([])
 
     # Header
-    ws.append([
-        "Sr. No.",
-        "Company Name",
-        "ISIN",
-        "BSE Symbol",
-        "NSE Symbol",
-        "Average Market Capitalization (Rs. In Lakhs)",
-    ])
+    ws.append(
+        [
+            "Sr. No.",
+            "Company Name",
+            "ISIN",
+            "BSE Symbol",
+            "NSE Symbol",
+            "Average Market Capitalization (Rs. In Lakhs)",
+        ]
+    )
 
     # Rank 1: Reliance (Large Cap)
     ws.append([1, "Reliance Industries Ltd", "INE002A01018", "500325", "RELIANCE", 198000000.0])

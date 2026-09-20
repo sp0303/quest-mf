@@ -1,6 +1,7 @@
 """Unit tests for AMC Holdings Scheduler."""
 
 from datetime import date
+
 from workers.amc_holdings_scheduler import REGISTERED_AMCS, compute_default_dates
 
 

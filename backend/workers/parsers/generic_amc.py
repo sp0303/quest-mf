@@ -43,20 +43,25 @@ class GenericAMCParser(BaseAMCParser):
 
         # 1. Match sheet by name if multiple sheets exist
         if target_filter:
+            compact_filter = target_filter.replace(" ", "")
             for name in wb.sheetnames:
-                if target_filter in name.lower():
+                compact_name = name.lower().replace(" ", "")
+                if target_filter in name.lower() or compact_filter in compact_name:
                     target_sheet = wb[name]
                     break
 
-        # 2. Check if an Index sheet exists mapping code -> full name (e.g. Nippon India)
-        if target_sheet is None and "Index" in wb.sheetnames and target_filter:
-            idx_ws = wb["Index"]
+        # 2. Check if an Index sheet exists mapping code -> full name (e.g. Nippon India, Tata)
+        index_sheets = [s for s in wb.sheetnames if s.lower() == "index"]
+        if target_sheet is None and index_sheets and target_filter:
+            idx_ws = wb[index_sheets[0]]
             for row in idx_ws.iter_rows(values_only=True):
-                if len(row) >= 2 and row[0] and row[1]:
-                    code_str = str(row[0]).strip()
-                    desc_str = str(row[1]).strip().lower()
-                    if target_filter in desc_str and code_str in wb.sheetnames:
-                        target_sheet = wb[code_str]
+                non_empty = [str(c).strip() for c in row if c is not None]
+                if any(target_filter in c.lower() for c in non_empty):
+                    for c in non_empty:
+                        if c in wb.sheetnames:
+                            target_sheet = wb[c]
+                            break
+                    if target_sheet is not None:
                         break
 
         # 3. Check sheet title banner / header within top 5 rows (e.g. Quant MF sheets like qSCF)
@@ -161,4 +166,3 @@ class DSPParser(GenericAMCParser):
 
     def __init__(self, default_scheme_filter: str | None = "Small Cap"):
         super().__init__(amc_code="DSP", default_scheme_filter=default_scheme_filter)
-

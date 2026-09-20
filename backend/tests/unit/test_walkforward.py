@@ -56,7 +56,9 @@ def test_walkforward_missing_nav_no_explosion():
     # Portfolio 201 has high NAV (e.g., 500.0) but is completely MISSING on day 1 (fill date)
     # If old buggy code defaulted fill NAV to 1.0, 50,000 / 1.0 = 50,000 units.
     # On day 2, 50,000 * 500 = 25,000,000 (2.5 Crore overnight!).
-    nav_201 = {calendar[i]: 500.0 * (1.0 + 0.0005 * i) for i in range(1, len(calendar))}  # missing day 0 and day 1!
+    nav_201 = {
+        calendar[i]: 500.0 * (1.0 + 0.0005 * i) for i in range(1, len(calendar))
+    }  # missing day 0 and day 1!
     nav_202 = {calendar[i]: 100.0 * (1.0 + 0.0002 * i) for i in range(len(calendar))}
 
     nav_by_portfolio = {
