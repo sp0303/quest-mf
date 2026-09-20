@@ -220,6 +220,18 @@ async def download_all_amc_disclosures(
             f"{as_of.isoformat()}_portfolio.xlsx",
             "ICICI Prudential Large Cap Fund.xlsx",
         ),
+        (
+            "bandhan",
+            "https://storage.googleapis.com/nonprod-static-assets-121to59kaawfgfi7bol/2026/09/51a82e61-bandhan-small-cap-fund-31-august-2026.xlsx",
+            f"{as_of.isoformat()}_portfolio.xlsx",
+            None,
+        ),
+        (
+            "invesco",
+            "https://www.invescomutualfund.com/docs/default-source/completes-monthly-holding/small-cap.xlsx?sfvrsn=7d249fc2_0",
+            f"{as_of.isoformat()}_portfolio.xlsx",
+            None,
+        ),
     ]
 
     results: dict[str, Path] = {}

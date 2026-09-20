@@ -482,9 +482,11 @@ async def ingest_all_amc_disclosures(as_of: date = date(2026, 8, 31)) -> dict[st
         disclosed = date(as_of.year, as_of.month + 1 if as_of.month < 12 else 1, 10)
         from workers.parsers.generic_amc import (
             AxisParser,
+            BandhanParser,
             DSPParser,
             HDFCParser,
             ICICIPrudentialParser,
+            InvescoParser,
             KotakParser,
             PPFASParser,
             QuantParser,
@@ -570,6 +572,20 @@ async def ingest_all_amc_disclosures(as_of: date = date(2026, 8, 31)) -> dict[st
                 RAW_HOLDINGS_DIR / "icici" / f"{as_of.isoformat()}_portfolio.xlsx",
                 113,
                 "Bluechip",
+            ),
+            (
+                "Bandhan Small Cap",
+                BandhanParser(),
+                RAW_HOLDINGS_DIR / "bandhan" / f"{as_of.isoformat()}_portfolio.xlsx",
+                108,
+                "Small Cap",
+            ),
+            (
+                "Invesco Small Cap",
+                InvescoParser(),
+                RAW_HOLDINGS_DIR / "invesco" / f"{as_of.isoformat()}_portfolio.xlsx",
+                109,
+                "Small Cap",
             ),
         ]
 
