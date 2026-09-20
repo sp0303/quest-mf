@@ -671,5 +671,8 @@ if __name__ == "__main__":
         help="Concurrency for parallel MFAPI fetches",
     )
     args = parser.parse_args()
-    asyncio.run(ingest_amfi_and_historical(max_history_schemes=args.max_history, concurrency=args.concurrency))
-
+    asyncio.run(
+        ingest_amfi_and_historical(
+            max_history_schemes=args.max_history, concurrency=args.concurrency
+        )
+    )

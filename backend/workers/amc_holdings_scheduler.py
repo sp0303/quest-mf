@@ -155,8 +155,17 @@ async def run_amc_ingestion(
     results: dict[int, Any] = {}
 
     for pid, scheme_filter in registration.portfolio_schemes.items():
-        logger.info("Processing %s -> Portfolio ID %d ('%s')", registration.amc_name, pid, scheme_filter)
-        amc_dir = Path(__file__).resolve().parent.parent / "var" / "data" / "raw" / "holdings" / registration.amc_code
+        logger.info(
+            "Processing %s -> Portfolio ID %d ('%s')", registration.amc_name, pid, scheme_filter
+        )
+        amc_dir = (
+            Path(__file__).resolve().parent.parent
+            / "var"
+            / "data"
+            / "raw"
+            / "holdings"
+            / registration.amc_code
+        )
         scheme_slug = scheme_filter.lower().replace(" ", "_")
         scheme_path = amc_dir / f"{as_of.isoformat()}_{registration.amc_code}_{scheme_slug}.xlsx"
 
@@ -173,12 +182,18 @@ async def run_amc_ingestion(
                 scheme_name_filter=scheme_filter,
             )
         else:
-            logger.warning("No authentic disclosure workbook found for %s (PID %d). Skipping per Rule Q16.", registration.amc_name, pid)
+            logger.warning(
+                "No authentic disclosure workbook found for %s (PID %d). Skipping per Rule Q16.",
+                registration.amc_name,
+                pid,
+            )
             results[pid] = {"status": "SKIPPED", "reason": "No authentic disclosure workbook found"}
             continue
 
         if not parse_res.valid:
-            logger.warning("Validation failed for portfolio %d: %s", pid, parse_res.validation_message)
+            logger.warning(
+                "Validation failed for portfolio %d: %s", pid, parse_res.validation_message
+            )
             results[pid] = {"status": "FAILED", "reason": parse_res.validation_message}
             continue
 
@@ -204,19 +219,30 @@ async def run_amc_ingestion(
 async def main() -> None:
     """CLI entry point for monthly AMC holdings scheduler."""
     parser = argparse.ArgumentParser(description="AMC Monthly Portfolio Disclosure Scheduler")
-    parser.add_argument("--amc", default="all", choices=list(REGISTERED_AMCS.keys()) + ["all"], help="Target AMC")
+    parser.add_argument(
+        "--amc", default="all", choices=list(REGISTERED_AMCS.keys()) + ["all"], help="Target AMC"
+    )
     parser.add_argument("--as-of-date", help="Portfolio as-of date (YYYY-MM-DD)")
     parser.add_argument("--file", help="Path to local Excel disclosure file")
-    parser.add_argument("--dry-run", action="store_true", help="Parse and validate without DB writes")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Parse and validate without DB writes"
+    )
     args = parser.parse_args()
 
     default_as_of, default_disclosed = compute_default_dates()
     as_of = date.fromisoformat(args.as_of_date) if args.as_of_date else default_as_of
     disclosed = default_disclosed
 
-    logger.info("Starting AMC Holdings Scheduler (As of: %s, Disclosed: %s, Dry Run: %s)", as_of, disclosed, args.dry_run)
+    logger.info(
+        "Starting AMC Holdings Scheduler (As of: %s, Disclosed: %s, Dry Run: %s)",
+        as_of,
+        disclosed,
+        args.dry_run,
+    )
 
-    amcs_to_run = list(REGISTERED_AMCS.values()) if args.amc == "all" else [REGISTERED_AMCS[args.amc]]
+    amcs_to_run = (
+        list(REGISTERED_AMCS.values()) if args.amc == "all" else [REGISTERED_AMCS[args.amc]]
+    )
     file_bytes = Path(args.file).read_bytes() if args.file and Path(args.file).exists() else None
 
     conn = await asyncpg.connect(settings.pg_dsn)
@@ -226,22 +252,41 @@ async def main() -> None:
         for reg in amcs_to_run:
             wb_bytes = file_bytes
             if wb_bytes is None:
-                cached_path = Path(__file__).resolve().parent.parent / "var" / "data" / "raw" / "holdings" / reg.amc_code / f"{as_of.isoformat()}_portfolio.xlsx"
+                cached_path = (
+                    Path(__file__).resolve().parent.parent
+                    / "var"
+                    / "data"
+                    / "raw"
+                    / "holdings"
+                    / reg.amc_code
+                    / f"{as_of.isoformat()}_portfolio.xlsx"
+                )
                 if cached_path.exists():
                     wb_bytes = cached_path.read_bytes()
-                    logger.info("Found cached disclosure file for %s at %s", reg.amc_name, cached_path)
+                    logger.info(
+                        "Found cached disclosure file for %s at %s", reg.amc_name, cached_path
+                    )
 
-            res = await run_amc_ingestion(conn, reg, wb_bytes, as_of, disclosed, dry_run=args.dry_run)
+            res = await run_amc_ingestion(
+                conn, reg, wb_bytes, as_of, disclosed, dry_run=args.dry_run
+            )
             for pid, status_info in res.items():
                 total_portfolios += 1
                 if status_info.get("status") in ("SUCCESS", "DRY_RUN"):
                     total_success += 1
-                    logger.info("✅ Portfolio %d: %s (Holdings: %d, Total Weight: %.2f%%)",
-                                pid, status_info["status"], status_info["holdings_count"], status_info["total_weight"])
+                    logger.info(
+                        "✅ Portfolio %d: %s (Holdings: %d, Total Weight: %.2f%%)",
+                        pid,
+                        status_info["status"],
+                        status_info["holdings_count"],
+                        status_info["total_weight"],
+                    )
                 else:
                     logger.error("❌ Portfolio %d: FAILED (%s)", pid, status_info.get("reason"))
 
-        logger.info("Completed: %d/%d portfolios successfully processed.", total_success, total_portfolios)
+        logger.info(
+            "Completed: %d/%d portfolios successfully processed.", total_success, total_portfolios
+        )
     finally:
         await conn.close()
 

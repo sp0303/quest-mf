@@ -148,6 +148,7 @@ async def get_fund_holdings(
         return None
 
     import json
+
     as_of = summary_row["as_of_date"]
 
     holdings_rows = await conn.fetch(
@@ -176,7 +177,9 @@ async def get_fund_holdings(
     return {
         "portfolio_id": summary_row["portfolio_id"],
         "as_of_date": str(summary_row["as_of_date"]),
-        "disclosed_date": str(summary_row["disclosed_date"]) if summary_row["disclosed_date"] else None,
+        "disclosed_date": str(summary_row["disclosed_date"])
+        if summary_row["disclosed_date"]
+        else None,
         "stock_count": summary_row["stock_count"],
         "top_10_concentration_pct": summary_row["top_10_concentration_pct"],
         "large_cap_pct": summary_row["large_cap_pct"],

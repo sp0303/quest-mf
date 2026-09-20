@@ -38,6 +38,7 @@ class AMCDownloadClient:
         url: str,
         as_of_date: date,
         filename: str | None = None,
+        zip_member: str | None = None,
         conn: asyncpg.Connection | None = None,
     ) -> Path:
         """Fetch remote workbook, verify SHA256, store untouched to disk."""
@@ -53,7 +54,7 @@ class AMCDownloadClient:
         # Rate limit to <= 1 req/s per AGENTS.md §9
         await asyncio.sleep(1.0)
 
-        async with httpx.AsyncClient(timeout=45.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             headers = {
                 "User-Agent": "quest-mf-research/0.1.0 (+https://quest-mf.local; quant research)"
             }
@@ -61,9 +62,29 @@ class AMCDownloadClient:
             resp.raise_for_status()
             content = resp.content
 
-        # Save untouched payload (AGENTS.md §9)
-        target_file.write_bytes(content)
         sha256_hash = hashlib.sha256(content).hexdigest()
+
+        if url.endswith(".zip") or zip_member:
+            import io
+            import zipfile
+
+            bundle_file = self.output_dir / f"{as_of_date.isoformat()}_bundle.zip"
+            bundle_file.write_bytes(content)
+            zf = zipfile.ZipFile(io.BytesIO(content))
+            matched = [
+                m
+                for m in zf.namelist()
+                if (zip_member and zip_member.lower() in m.lower()) or m.endswith((".xlsx", ".xls"))
+            ]
+            if matched:
+                target_file.write_bytes(zf.read(matched[0]))
+                logger.info("Extracted member %s to %s", matched[0], target_file)
+            else:
+                target_file.write_bytes(content)
+        else:
+            # Save untouched payload (AGENTS.md §9)
+            target_file.write_bytes(content)
+
         logger.info("Stored raw payload (%d bytes, SHA256: %s)", len(content), sha256_hash[:12])
 
         # Record in ops.ingest_log if database connection provided
@@ -100,12 +121,32 @@ async def download_all_amc_disclosures(
 ) -> dict[str, Path]:
     """Download authentic monthly portfolio disclosures across top AMCs."""
     month_names = [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December"
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ]
     month_abbrs = [
-        "Jan", "Feb", "Mar", "April", "May", "Jun",
-        "July", "Aug", "Sep", "Oct", "Nov", "Dec"
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
     ]
     m_name = month_names[as_of.month - 1]
     m_abbr = month_abbrs[as_of.month - 1]
@@ -117,39 +158,77 @@ async def download_all_amc_disclosures(
             "ppfas",
             f"https://amc.ppfas.com/downloads/portfolio-disclosure/{as_of.year}/PPFCF_PPFAS_Monthly_Portfolio_Report_{m_name}_{as_of.day}_{as_of.year}.xlsx",
             f"{as_of.isoformat()}_portfolio.xlsx",
+            None,
         ),
         (
             "nippon",
             f"https://mf.nipponindiaim.com/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-{as_of.day}-{m_abbr}-{y_short}.xls",
             f"{as_of.isoformat()}_portfolio.xlsx",
+            None,
         ),
         (
             "hdfc",
             f"https://files.hdfcfund.com/s3fs-public/{as_of.year}-{next_m:02d}/Monthly%20HDFC%20Small%20Cap%20Fund%20-%20{as_of.day}%20{m_name}%20{as_of.year}.xlsx",
             f"{as_of.isoformat()}_hdfc_small_cap.xlsx",
+            None,
         ),
         (
             "hdfc",
             f"https://files.hdfcfund.com/s3fs-public/{as_of.year}-{next_m:02d}/Monthly%20HDFC%20Flexi%20Cap%20Fund%20-%20{as_of.day}%20{m_name}%20{as_of.year}.xlsx",
             f"{as_of.isoformat()}_hdfc_flexi_cap.xlsx",
+            None,
         ),
         (
             "sbi",
             f"https://www.sbimf.com/docs/default-source/scheme-portfolios/sbi-small-cap-fund-monthly-portfolio---{m_name.lower()}-{as_of.year}.xlsx",
             f"{as_of.isoformat()}_portfolio.xlsx",
+            None,
         ),
         (
             "quant",
             f"https://www.quantmutual.com/Admin/disclouser/Monthly_Portfolio_{as_of.day}{as_of.month:02d}{as_of.year}.xlsx",
             f"{as_of.isoformat()}_portfolio.xlsx",
+            None,
+        ),
+        (
+            "tata",
+            f"https://betacms.tatamutualfund.com/system/files/{as_of.year}-{next_m:02d}/Monthly%20Portfolio%20as%20on%20{as_of.day}{'th' if 11 <= as_of.day <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(as_of.day % 10, 'th')}%20{m_name}%20{as_of.year}.xlsx",
+            f"{as_of.isoformat()}_portfolio.xlsx",
+            None,
+        ),
+        (
+            "axis",
+            f"https://www.axismf.com/1/5/464/560/3622/4549/Monthly_Portfolio_{as_of.day:02d}_{as_of.month:02d}_{as_of.year}_b9a9ee4154.xlsx",
+            f"{as_of.isoformat()}_portfolio.xlsx",
+            None,
+        ),
+        (
+            "kotak",
+            f"https://vatseelabs-s3.kotakmf.com/FormsDownloads/Portfolios/Consolidated-SEBI-Portfolio-as-on-{m_name}-{as_of.day},-{as_of.year}/ConsolidatedSEBIPortfolio{m_name}{as_of.year}.xlsx",
+            f"{as_of.isoformat()}_portfolio.xlsx",
+            None,
+        ),
+        (
+            "dsp",
+            "https://www.dspim.com/media/pages/mandatory-disclosures/portfolio-disclosures/8a6dbe504f-1789097171/dsp-monthend-portfolio-as-on-31-aug-2026.zip",
+            f"{as_of.isoformat()}_portfolio.xlsx",
+            "equity",
+        ),
+        (
+            "icici",
+            f"https://www.icicipruamc.com/blob/downloads/Files/Monthly%20Portfolio%20Disclosures/{as_of.year}/{m_abbr}/Monthly-Portfolio-Disclosure-{m_name}-{as_of.year}.zip",
+            f"{as_of.isoformat()}_portfolio.xlsx",
+            "ICICI Prudential Large Cap Fund.xlsx",
         ),
     ]
 
     results: dict[str, Path] = {}
-    for amc_code, url, dest_name in download_specs:
+    for amc_code, url, dest_name, member in download_specs:
         client = AMCDownloadClient(amc_code)
         try:
-            path = await client.fetch_and_cache(url, as_of, filename=dest_name, conn=conn)
+            path = await client.fetch_and_cache(
+                url, as_of, filename=dest_name, zip_member=member, conn=conn
+            )
             results[f"{amc_code}_{dest_name}"] = path
         except Exception as e:
             logger.error("Failed to download %s from %s: %s", amc_code, url, e)
@@ -163,9 +242,18 @@ if __name__ == "__main__":
 
     from workers.holdings_worker import ingest_all_amc_disclosures
 
-    parser = argparse.ArgumentParser(description="AMC Monthly Disclosure Downloader and Ingestion Pipeline")
-    parser.add_argument("--as-of", type=str, default="2026-08-31", help="Portfolio as-of date (YYYY-MM-DD)")
-    parser.add_argument("--ingest", action="store_true", default=True, help="Automatically ingest and precompute after download")
+    parser = argparse.ArgumentParser(
+        description="AMC Monthly Disclosure Downloader and Ingestion Pipeline"
+    )
+    parser.add_argument(
+        "--as-of", type=str, default="2026-08-31", help="Portfolio as-of date (YYYY-MM-DD)"
+    )
+    parser.add_argument(
+        "--ingest",
+        action="store_true",
+        default=True,
+        help="Automatically ingest and precompute after download",
+    )
     args = parser.parse_args()
 
     as_of_dt = date.fromisoformat(args.as_of)

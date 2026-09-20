@@ -87,11 +87,32 @@ class BaseAMCParser(ABC):
         upper_name = name.strip().upper()
         upper_sec = (sector or "").strip().upper()
 
-        if any(w in upper_name for w in ("TREPS", "REVERSE REPO", "REPO", "CASH", "NET RECEIVABLES", "CLEARING CORP", "CURRENT ASSETS", "MARGIN MONEY")) or upper_sec in ("CASH", "CASH & CASH EQUIVALENTS", "TREPS", "MONEY MARKET"):
+        if any(
+            w in upper_name
+            for w in (
+                "TREPS",
+                "REVERSE REPO",
+                "REPO",
+                "CASH",
+                "NET RECEIVABLES",
+                "CLEARING CORP",
+                "CURRENT ASSETS",
+                "MARGIN MONEY",
+            )
+        ) or upper_sec in ("CASH", "CASH & CASH EQUIVALENTS", "TREPS", "MONEY MARKET"):
             return "TREPS_CASH"
         if any(w in upper_name for w in ("MUTUAL FUND UNITS", "EXCHANGE TRADED COMMODITY")):
             return "OTHER"
-        if any(w in upper_sec for w in ("DEBT", "GOVERNMENT BOND", "TREASURY BILL", "COMMERCIAL PAPER", "CERTIFICATE OF DEPOSIT")):
+        if any(
+            w in upper_sec
+            for w in (
+                "DEBT",
+                "GOVERNMENT BOND",
+                "TREASURY BILL",
+                "COMMERCIAL PAPER",
+                "CERTIFICATE OF DEPOSIT",
+            )
+        ):
             return "DEBT"
         if any(w in upper_name for w in ("FUTURES", "OPTIONS", "INDEX OPTION")):
             return "DERIVATIVE"
@@ -116,15 +137,64 @@ class BaseAMCParser(ABC):
             for col_idx, text in enumerate(row_strs):
                 if "isin" in text:
                     isin_col = col_idx
-                elif any(k in text for k in ("name of instrument", "name of the instrument", "security name", "instrument name", "company name", "name of company", "issuer name", "name of the instrument / issuer")):
+                elif any(
+                    k in text
+                    for k in (
+                        "name of instrument",
+                        "name of the instrument",
+                        "security name",
+                        "instrument name",
+                        "company name",
+                        "name of company",
+                        "issuer name",
+                        "name of the instrument / issuer",
+                    )
+                ):
                     name_col = col_idx
-                elif any(k in text for k in ("% to nav", "% to net assets", "percentage to net assets", "% of nav", "pct_nav", "% to aum", "% of aum", "% to total aum", "% to netassets", "percentage to aum")):
+                elif any(
+                    k in text
+                    for k in (
+                        "% to nav",
+                        "% to net assets",
+                        "percentage to net assets",
+                        "% of nav",
+                        "pct_nav",
+                        "% to aum",
+                        "% of aum",
+                        "% to total aum",
+                        "% to netassets",
+                        "percentage to aum",
+                    )
+                ):
                     pct_col = col_idx
-                elif any(k in text for k in ("industry", "sector", "rating / industry", "industry / rating", "industry/rating", "industry+ /rating", "rating/industry")):
+                elif any(
+                    k in text
+                    for k in (
+                        "industry",
+                        "sector",
+                        "rating / industry",
+                        "industry / rating",
+                        "industry/rating",
+                        "industry+ /rating",
+                        "rating/industry",
+                    )
+                ):
                     sector_col = col_idx
                 elif any(k in text for k in ("quantity", "qty")):
                     qty_col = col_idx
-                elif any(k in text for k in ("market value", "fair value", "value in lakhs", "market/fair value", "market/ fair value", "market value (rs. in lakhs)", "market value(rs.in lakhs)", "market/ fair value (rs. in lacs.)")):
+                elif any(
+                    k in text
+                    for k in (
+                        "market value",
+                        "fair value",
+                        "value in lakhs",
+                        "market/fair value",
+                        "market/ fair value",
+                        "market value (rs. in lakhs)",
+                        "market value(rs.in lakhs)",
+                        "market/ fair value (rs. in lacs.)",
+                    )
+                ):
                     mval_col = col_idx
 
             if isin_col is not None and name_col is not None and pct_col is not None:
@@ -138,7 +208,9 @@ class BaseAMCParser(ABC):
                     market_value_col=mval_col,
                 )
 
-        raise ValueError("Gate H1 Failed: Unable to detect required header row with ISIN, Name, and % to NAV")
+        raise ValueError(
+            "Gate H1 Failed: Unable to detect required header row with ISIN, Name, and % to NAV"
+        )
 
     @classmethod
     def parse_sheet_rows(
@@ -167,18 +239,43 @@ class BaseAMCParser(ABC):
                 continue
 
             raw_name = row[header_map.name_col] if header_map.name_col < len(row) else None
-            if not raw_name:
+            if not raw_name or not str(raw_name).strip():
+                # Check preceding cells before ISIN column if name_col was indented/offset (e.g. Kotak)
+                if header_map.isin_col is not None:
+                    for c_idx in range(header_map.isin_col - 1, -1, -1):
+                        cand = row[c_idx] if c_idx < len(row) else None
+                        if cand and str(cand).strip() and not str(cand).strip().isdigit():
+                            raw_name = cand
+                            break
+
+            if not raw_name or not str(raw_name).strip():
                 continue
 
             name_str = str(raw_name).strip()
             upper_name = name_str.upper()
 
             # Stop when reaching overall total / end marker
-            if "GRAND TOTAL" in upper_name:
+            if (
+                "GRAND TOTAL" in upper_name
+                or upper_name in ("NET ASSETS", "TOTAL NET ASSETS")
+                or upper_name.startswith("NET ASSETS")
+            ):
                 break
 
             # Skip subtotal, intermediate category headers, disclaimers
-            if any(k in upper_name for k in ("TOTAL", "SUB TOTAL", "PORTFOLIO AS ON", "NOTES:", "DISCLAIMER", "EQUITY & EQUITY RELATED", "LISTED / AWAITING", "UNLISTED")):
+            if any(
+                k in upper_name
+                for k in (
+                    "TOTAL",
+                    "SUB TOTAL",
+                    "PORTFOLIO AS ON",
+                    "NOTES:",
+                    "DISCLAIMER",
+                    "EQUITY & EQUITY RELATED",
+                    "LISTED / AWAITING",
+                    "UNLISTED",
+                )
+            ):
                 continue
 
             raw_pct = row[header_map.pct_nav_col] if header_map.pct_nav_col < len(row) else None
@@ -208,7 +305,8 @@ class BaseAMCParser(ABC):
 
             raw_mval = (
                 row[header_map.market_value_col]
-                if header_map.market_value_col is not None and header_map.market_value_col < len(row)
+                if header_map.market_value_col is not None
+                and header_map.market_value_col < len(row)
                 else None
             )
             try:

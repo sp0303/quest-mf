@@ -1,12 +1,9 @@
 """Golden test suite per Spec v2 §28 (Tests O, R, S)."""
 
-import json
-from datetime import date
-
 import pytest
 from questmf_quant.friction import calculate_net_return
 from questmf_quant.percentile import mid_rank_percentile
-from questmf_quant.returns import cagr, simple_return
+from questmf_quant.returns import cagr
 from questmf_quant.scoring import DEFAULT_BASELINE_MODEL, compute_composite_score
 
 
@@ -77,7 +74,10 @@ def test_s_deterministic_pipeline_reproducibility():
     }
 
     # Run scoring 10 times consecutively
-    results = [compute_composite_score(factor_scores, DEFAULT_BASELINE_MODEL, obs_count=500) for _ in range(10)]
+    results = [
+        compute_composite_score(factor_scores, DEFAULT_BASELINE_MODEL, obs_count=500)
+        for _ in range(10)
+    ]
 
     first_score, first_conf = results[0]
     for score, conf in results[1:]:

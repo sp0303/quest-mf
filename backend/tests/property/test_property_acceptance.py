@@ -1,7 +1,5 @@
 """Property-based acceptance tests per Spec v2 §28 (Test J & Invariance)."""
 
-from datetime import date
-
 import pytest
 from questmf_quant.percentile import mid_rank_percentile, own_history_percentile
 from questmf_quant.returns import cagr, simple_return
@@ -22,7 +20,9 @@ def test_j_shp_future_invariance_property():
     augmented_series = history_up_to_t + [current_return_t] + future_data
 
     # Re-evaluate SHP as of date t using only data known at date t (first 99 periods)
-    shp_t_recomputed = own_history_percentile(current_return_t, augmented_series[: len(history_up_to_t)])
+    shp_t_recomputed = own_history_percentile(
+        current_return_t, augmented_series[: len(history_up_to_t)]
+    )
 
     assert shp_t_recomputed == pytest.approx(shp_t, abs=1e-12)
 
