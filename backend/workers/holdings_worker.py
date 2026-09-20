@@ -196,6 +196,33 @@ async def precompute_portfolio_summary(
     )
 
 
+async def ingest_amc_workbook(
+    conn: asyncpg.Connection,
+    amc_parser: Any,
+    workbook_data: Any,
+    portfolio_id: int,
+    as_of_date: date,
+    disclosed_date: date,
+    scheme_filter: str | None = None,
+) -> Any:
+    """Parse, ingest, and precompute summary for an AMC workbook adhering to H1-H8."""
+    result = amc_parser.parse_workbook(
+        workbook_data,
+        portfolio_id=portfolio_id,
+        as_of_date=as_of_date,
+        disclosed_date=disclosed_date,
+        scheme_name_filter=scheme_filter,
+    )
+    if not result.valid:
+        logger.error("AMC parse failed for portfolio %d: %s", portfolio_id, result.validation_message)
+        return result
+
+    await ingest_monthly_holdings(conn, result.holdings)
+    await precompute_portfolio_summary(conn, portfolio_id, as_of_date)
+    logger.info("Successfully ingested %d holdings for portfolio %d.", len(result.holdings), portfolio_id)
+    return result
+
+
 async def upsert_fund_profile(
     conn: asyncpg.Connection,
     profile: FundProfileEntry,
