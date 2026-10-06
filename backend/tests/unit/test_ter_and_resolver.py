@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import date
+import io
+from datetime import date, datetime
+
+import openpyxl
 
 from workers.portfolio_resolver import names_match
-from workers.ter_worker import financial_year, normalize_scheme_name, ter_change_points
+from workers.ter_worker import (
+    financial_year,
+    normalize_scheme_name,
+    parse_ter_workbook,
+    ter_change_points,
+)
 
 
 def test_normalize_scheme_name_matches_amfi_and_display_forms():
@@ -38,3 +46,23 @@ def test_ter_change_points_keep_only_changes_and_skip_invalid():
 def test_financial_year_boundary():
     assert financial_year(date(2026, 10, 6)) == "2026-2027"
     assert financial_year(date(2026, 3, 31)) == "2025-2026"
+
+
+def test_parse_ter_workbook_reads_direct_plan_total_ter():
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(
+        [
+            "NSDL Scheme Code",
+            "Scheme Name",
+            "TER Date",
+            "Regular Plan - Total TER (%)",
+            "Direct Plan - Total TER (%)",
+        ]
+    )
+    ws.append(["X/1", "X Fund", datetime(2026, 10, 1), 2.19, 0.62])
+    buf = io.BytesIO()
+    wb.save(buf)
+    rows = parse_ter_workbook(buf.getvalue())
+    assert rows == [{"Scheme_Name": "X Fund", "TER_Date": datetime(2026, 10, 1), "D_TER": 0.62}]
+    assert ter_change_points(rows) == {"x": [(date(2026, 10, 1), 0.62)]}

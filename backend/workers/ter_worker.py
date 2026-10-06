@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
+import io
 import logging
 import re
 from datetime import date, datetime
@@ -23,6 +23,7 @@ from typing import Any
 
 import asyncpg
 import httpx
+import openpyxl
 
 from app.config import settings
 from workers.ingestion_worker import AsyncRateLimiter, store_raw_payload
@@ -31,7 +32,6 @@ logger = logging.getLogger("ter_worker")
 logging.basicConfig(level=logging.INFO)
 
 AMFI_BASE = "https://www.amfiindia.com/api"
-PAGE_SIZE = 5000
 _rate = AsyncRateLimiter(requests_per_second=1.0)
 _STOPWORDS = {"fund", "the", "scheme", "plan", "an", "open", "ended"}
 
@@ -48,13 +48,39 @@ def financial_year(d: date) -> str:
     return f"{d.year}-{d.year + 1}" if d.month >= 4 else f"{d.year - 1}-{d.year}"
 
 
+def _as_date(v: Any) -> date:
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    return datetime.fromisoformat(str(v).replace("Z", "+00:00")).date()
+
+
+def parse_ter_workbook(data: bytes) -> list[dict[str, Any]]:
+    """Rows of AMFI's TER Excel export as {Scheme_Name, TER_Date, D_TER} dicts."""
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True)
+    rows = wb[wb.sheetnames[0]].iter_rows(values_only=True)
+    header = [str(h or "").strip().lower() for h in next(rows, ())]
+    try:
+        i_name = header.index("scheme name")
+        i_date = header.index("ter date")
+        i_ter = header.index("direct plan - total ter (%)")
+    except ValueError as exc:
+        raise ValueError(f"Unexpected AMFI TER header: {header}") from exc
+    return [
+        {"Scheme_Name": r[i_name], "TER_Date": r[i_date], "D_TER": r[i_ter]}
+        for r in rows
+        if r and r[i_name]
+    ]
+
+
 def ter_change_points(rows: list[dict[str, Any]]) -> dict[str, list[tuple[date, float]]]:
     """Group AMFI rows by normalized name -> sorted [(date, D_TER%)] change points."""
     series: dict[str, dict[date, float]] = {}
     for r in rows:
         try:
             ter = float(r["D_TER"])
-            d = datetime.fromisoformat(str(r["TER_Date"]).replace("Z", "+00:00")).date()
+            d = _as_date(r["TER_Date"])
         except (KeyError, TypeError, ValueError):
             continue
         if ter <= 0:
@@ -70,37 +96,31 @@ def ter_change_points(rows: list[dict[str, Any]]) -> dict[str, list[tuple[date, 
     return out
 
 
-async def _get_json(client: httpx.AsyncClient, url: str) -> Any:
+async def _get(client: httpx.AsyncClient, url: str) -> httpx.Response:
     await _rate.wait()
     resp = await client.get(url)
     resp.raise_for_status()
-    return resp.json()
+    return resp
 
 
 async def fetch_month(client: httpx.AsyncClient, month_number: str) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    page = 1
-    while True:
-        url = (
-            f"{AMFI_BASE}/populate-te-rdata-revised?MF_ID=All&Month={month_number}"
-            f"&strCat=-1&strType=-1&page={page}&pageSize={PAGE_SIZE}"
-        )
-        body = await _get_json(client, url)
-        store_raw_payload("amfi_ter", json.dumps(body).encode(), f"{month_number}_p{page}.json")
-        rows.extend(body.get("data") or [])
-        meta = body.get("meta") or {}
-        if page >= int(meta.get("pageCount") or 1):
-            return rows
-        page += 1
+    """One AMFI Excel export per month (all schemes, all days)."""
+    url = (
+        f"{AMFI_BASE}/populate-te-rdata-revised?MF_ID=All&Month={month_number}"
+        "&strCat=-1&strType=-1&excel=true"
+    )
+    data = (await _get(client, url)).content
+    store_raw_payload("amfi_ter", data, f"ter_{month_number}.xlsx")
+    return parse_ter_workbook(data)
 
 
 async def fetch_recent_months(n_months: int) -> list[dict[str, Any]]:
-    headers = {"User-Agent": "Mozilla/5.0 (quest-mf TER ingestion; contact: admin)"}
-    async with httpx.AsyncClient(timeout=60.0, headers=headers) as client:
+    headers = {"User-Agent": "Mozilla/5.0 (quest-mf TER ingestion)"}
+    async with httpx.AsyncClient(timeout=120.0, headers=headers) as client:
         today = date.today()
         months: list[str] = []
         for fy in (financial_year(today), financial_year(date(today.year - 1, today.month, 1))):
-            listing = await _get_json(client, f"{AMFI_BASE}/populate-ter-month?year={fy}")
+            listing = (await _get(client, f"{AMFI_BASE}/populate-ter-month?year={fy}")).json()
             months += [m["MonthNumber"] for m in listing if m.get("MonthNumber") not in months]
         rows: list[dict[str, Any]] = []
         for m in months[:n_months]:
