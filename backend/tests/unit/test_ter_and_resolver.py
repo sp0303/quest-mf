@@ -21,6 +21,9 @@ def test_normalize_scheme_name_matches_amfi_and_display_forms():
         "HSBC INDIA EXPORT OPPORTUNITIES FUND"
     )
     assert normalize_scheme_name("Banking & PSU Fund") == "banking and psu"
+    assert normalize_scheme_name("Invesco India Smallcap Fund") == normalize_scheme_name(
+        "Invesco India Small Cap Fund"
+    )
 
 
 def test_erstwhile_name_matches_renamed_fund():

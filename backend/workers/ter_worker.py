@@ -41,6 +41,7 @@ def normalize_scheme_name(name: str) -> str:
     s = name.lower().replace("&", " and ")
     s = re.sub(r"\(.*?\)", " ", s)  # drop "(erstwhile ...)" / "(formerly ...)"
     s = re.sub(r"[^a-z0-9]+", " ", s)
+    s = re.sub(r"\b(small|mid|large|flexi|multi)cap\b", r"\1 cap", s)  # "Smallcap" == "Small Cap"
     return " ".join(w for w in s.split() if w not in _STOPWORDS)
 
 
