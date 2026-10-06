@@ -29,6 +29,14 @@ ACTIVE_MODEL_SQL = (
 )
 
 
+def search_patterns(q: str | None) -> list[str]:
+    """ILIKE patterns: every word must appear in fund name or AMC (LIKE wildcards escaped)."""
+    words = (q or "").split()[:8]
+    return [
+        "%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" for w in words
+    ]
+
+
 @router.get("/latest")
 async def get_latest(conn: asyncpg.Connection = Depends(get_db_connection)):
     row = await conn.fetchrow(f"""
@@ -58,6 +66,7 @@ async def get_screener(
     sort: str = Query("composite"),
     direction: str = Query("desc"),
     limit: int = Query(100, le=500),
+    q: str | None = Query(None, max_length=80, description="Search fund name / AMC"),
     conn: asyncpg.Connection = Depends(get_db_connection),
 ):
     sort_col = SORT_COLUMN_WHITELIST.get(sort, "composite")
@@ -80,10 +89,13 @@ async def get_screener(
           AND ($2::smallint IS NULL OR category_id = $2)
           AND confidence >= $3
           AND ($4::boolean IS FALSE OR investable = true)
+          AND (fund_name || ' ' || amc) ILIKE ALL($6::text[])
         ORDER BY {sort_col} {dir_sql} NULLS LAST
         LIMIT $5;
     """
-    rows = await conn.fetch(query, as_of_date, category_id, min_confidence, investable_only, limit)
+    rows = await conn.fetch(
+        query, as_of_date, category_id, min_confidence, investable_only, limit, search_patterns(q)
+    )
     return [dict(r) for r in rows]
 
 

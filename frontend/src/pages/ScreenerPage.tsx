@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import {
   QuadrantMatrixChart,
   ScreenerFilters,
+  ScreenerSearch,
   ScreenerTable,
   useScreener,
 } from "@/features/screener";
@@ -17,6 +18,9 @@ export const ScreenerPage: React.FC = () => {
   const {
     categoryId,
     sort,
+    query,
+    setQuery,
+    isSearching,
     setCategory,
     setSorting,
     categories,
@@ -56,6 +60,13 @@ export const ScreenerPage: React.FC = () => {
         </div>
       </div>
 
+      <ScreenerSearch
+        value={query}
+        onSearch={setQuery}
+        isSearching={isSearching}
+        resultCount={isLoading ? undefined : funds.length}
+      />
+
       {/* 4-State Handling */}
       {isError && (
         <ErrorCard
@@ -78,18 +89,22 @@ export const ScreenerPage: React.FC = () => {
 
       {!isLoading && !isError && funds.length === 0 && (
         <div className="p-12 text-center rounded-3xl border border-hairline bg-paper text-mid-gray">
-          No funds found matching the selected filter.
+          {query
+            ? `No funds match “${query}”${categoryId ? " in this category" : ""}.`
+            : "No funds found matching the selected filter."}
         </div>
       )}
 
       {!isLoading && !isError && funds.length > 0 && (
         <>
-          <div data-tour="quadrant-matrix">
-            <QuadrantMatrixChart
-              data={matrixData}
-              onSelectFund={(id) => navigate(`/fund/${id}`)}
-            />
-          </div>
+          {!query && (
+            <div data-tour="quadrant-matrix">
+              <QuadrantMatrixChart
+                data={matrixData}
+                onSelectFund={(id) => navigate(`/fund/${id}`)}
+              />
+            </div>
+          )}
           <div data-tour="screener-table">
             <ScreenerTable
               funds={funds}

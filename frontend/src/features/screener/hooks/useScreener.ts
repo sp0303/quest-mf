@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 
@@ -29,6 +30,21 @@ export function useScreener() {
     : undefined;
   const sort = searchParams.get("sort") || "composite";
   const direction = searchParams.get("direction") || "desc";
+  const query = searchParams.get("q") || "";
+
+  const setQuery = useCallback(
+    (q: string) =>
+      setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (q.trim()) next.set("q", q.trim());
+        else next.delete("q");
+        return next;
+      },
+      { replace: true },
+    ),
+    [setSearchParams],
+  );
 
   const setCategory = (catId?: number) => {
     setSearchParams((prev) => {
@@ -60,8 +76,9 @@ export function useScreener() {
   });
 
   const screenerQuery = useQuery({
-    queryKey: ["screener", categoryId, sort, direction],
-    queryFn: () => api.getScreener({ categoryId, sort, direction }),
+    queryKey: ["screener", categoryId, sort, direction, query],
+    queryFn: () => api.getScreener({ categoryId, sort, direction, q: query || undefined }),
+    placeholderData: keepPreviousData, // keep rows visible while a new search loads
   });
 
   const matrixQuery = useQuery({
@@ -73,12 +90,15 @@ export function useScreener() {
     categoryId,
     sort,
     direction,
+    query,
+    setQuery,
     setCategory,
     setSorting,
     categories: categoriesQuery.data || [],
     funds: screenerQuery.data || [],
     matrixData: matrixQuery.data || [],
     isLoading: screenerQuery.isLoading,
+    isSearching: screenerQuery.isFetching && screenerQuery.isPlaceholderData,
     isError: screenerQuery.isError,
     error: screenerQuery.error,
     refetch: screenerQuery.refetch,

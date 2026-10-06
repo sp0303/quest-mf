@@ -33,8 +33,10 @@ export const api = {
     sort?: string;
     direction?: string;
     limit?: number;
+    q?: string;
   }) => {
     const query = new URLSearchParams();
+    if (params?.q) query.set("q", params.q);
     if (params?.categoryId) query.set("category_id", params.categoryId.toString());
     if (params?.sort) query.set("sort", params.sort);
     if (params?.direction) query.set("direction", params.direction);

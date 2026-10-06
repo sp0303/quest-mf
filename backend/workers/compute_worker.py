@@ -369,15 +369,19 @@ async def run_compute_job() -> None:
         # an upsert leaves rows from previous runs (e.g. ETFs, index, debt funds
         # scored before the universe filter). Delete everything not computed this
         # run so the snapshot equals the current universe.
+        # Keyed on (portfolio_id, category_id): a fund whose category was corrected must
+        # not keep its old-category row (one row per portfolio_id, Rule Q8).
         computed_pids = list(fund_metrics.keys())
         if computed_pids:
             await conn.execute(
                 "DELETE FROM scoring.screener_snapshot "
                 "WHERE as_of_date = $1 AND model_version = $2 "
-                "AND NOT (portfolio_id = ANY($3::int[]));",
+                "AND (portfolio_id, category_id) NOT IN ("
+                "  SELECT * FROM unnest($3::int[], $4::smallint[]));",
                 as_of_date,
                 active_model_version,
                 computed_pids,
+                [fund_metrics[p]["scheme"]["category_id"] for p in computed_pids],
             )
             await conn.execute(
                 "DELETE FROM analytics.fund_summary WHERE NOT (portfolio_id = ANY($1::int[]));",
