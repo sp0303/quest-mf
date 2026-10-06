@@ -1,16 +1,34 @@
 """Database and cache initialization script."""
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 
 import asyncpg
 import redis.asyncio as aioredis
+from questmf_quant.composite import SPEC16_CONFIG, SPEC16_VERSION
 
 from app.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("questmf.init_db")
+
+
+async def set_default_model(conn: asyncpg.Connection) -> None:
+    """Upsert the spec §16 model and make it the only default (idempotent)."""
+    async with conn.transaction():
+        await conn.execute("UPDATE scoring.model_versions SET is_default = false;")
+        await conn.execute(
+            """
+            INSERT INTO scoring.model_versions (model_version, config, is_default)
+            VALUES ($1, $2::jsonb, true)
+            ON CONFLICT (model_version) DO UPDATE
+            SET config = EXCLUDED.config, is_default = true;
+            """,
+            SPEC16_VERSION,
+            json.dumps(SPEC16_CONFIG),
+        )
 
 
 async def init_database():
@@ -24,16 +42,18 @@ async def init_database():
         await conn.execute(schema_sql)
         logger.info("Database schemas and tables successfully initialized.")
 
-        # Seed default model version
+        # Seed model versions (Rule Q13). v1_baseline is kept for reproducibility of
+        # historical snapshots; the spec §16 model is the default.
         await conn.execute("""
             INSERT INTO scoring.model_versions (model_version, config, is_default)
             VALUES (
                 'v1_baseline',
                 '{"weights": {"momentum": 0.35, "persistence": 0.25, "quality": 0.20, "risk": 0.10, "cost": 0.10}, "min_obs_required": 252}',
-                true
+                false
             )
             ON CONFLICT (model_version) DO NOTHING;
         """)
+        await set_default_model(conn)
 
         # Seed categories
         categories = [

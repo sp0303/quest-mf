@@ -94,7 +94,7 @@ export const TOUR_STEPS: TourStep[] = [
     quantExplanation: {
       metric: "Post-Friction Realized Yield",
       details:
-        "Simulates Stamp Duty (0.005%), Exit Loads, STT (0.1%), and post-Budget 2024 LTCG (12.5%) & STCG (20%) tax schedules.",
+        "Simulates Stamp Duty (0.005%), Exit Loads, STT (0.001%), and post-Budget 2024 LTCG (12.5%) & STCG (20%) tax schedules.",
     },
   },
   {

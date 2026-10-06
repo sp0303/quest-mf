@@ -23,16 +23,20 @@ SORT_COLUMN_WHITELIST = {
     "ter": "ter",
 }
 
+# Serve only the default model's rows: several model versions can share an as_of_date.
+ACTIVE_MODEL_SQL = (
+    "SELECT model_version FROM scoring.model_versions WHERE is_default = true LIMIT 1"
+)
+
 
 @router.get("/latest")
 async def get_latest(conn: asyncpg.Connection = Depends(get_db_connection)):
-    row = await conn.fetchrow("""
-        SELECT model_version, as_of_date, published_at
-        FROM scoring.latest
-        ORDER BY published_at DESC
-        LIMIT 1;
+    row = await conn.fetchrow(f"""
+        SELECT l.model_version, l.as_of_date, l.published_at
+        FROM scoring.latest l
+        WHERE l.model_version = ({ACTIVE_MODEL_SQL});
     """)
-    return dict(row) if row else {"model_version": "v1_baseline", "as_of_date": None}
+    return dict(row) if row else {"model_version": None, "as_of_date": None}
 
 
 @router.get("/models")
@@ -60,13 +64,19 @@ async def get_screener(
     dir_sql = "ASC" if direction.lower() == "asc" else "DESC"
 
     query = f"""
+        WITH active_model AS ({ACTIVE_MODEL_SQL})
         SELECT
             portfolio_id, fund_name, amc, ret_1m, ret_3m, ret_6m, ret_1y,
             cagr_3y, shp_3m, peer_pct_3m, alpha_3m, ir_3y, mdd_3y, ter,
             exit_load_rate, exit_load_days, composite, confidence, quadrant,
             flags, investable, category_id, as_of_date
         FROM scoring.screener_snapshot
-        WHERE as_of_date = COALESCE($1, (SELECT as_of_date FROM scoring.latest WHERE model_version = 'v1_baseline' LIMIT 1))
+        WHERE model_version = (SELECT model_version FROM active_model)
+          AND as_of_date = COALESCE(
+              $1,
+              (SELECT l.as_of_date FROM scoring.latest l
+               WHERE l.model_version = (SELECT model_version FROM active_model))
+          )
           AND ($2::smallint IS NULL OR category_id = $2)
           AND confidence >= $3
           AND ($4::boolean IS FALSE OR investable = true)
@@ -83,10 +93,16 @@ async def get_matrix(
     category_id: int | None = Query(None),
     conn: asyncpg.Connection = Depends(get_db_connection),
 ):
-    query = """
+    query = f"""
+        WITH active_model AS ({ACTIVE_MODEL_SQL})
         SELECT portfolio_id, fund_name, peer_pct_3m, shp_3m, quadrant, composite
         FROM scoring.screener_snapshot
-        WHERE as_of_date = COALESCE($1, (SELECT as_of_date FROM scoring.latest WHERE model_version = 'v1_baseline' LIMIT 1))
+        WHERE model_version = (SELECT model_version FROM active_model)
+          AND as_of_date = COALESCE(
+              $1,
+              (SELECT l.as_of_date FROM scoring.latest l
+               WHERE l.model_version = (SELECT model_version FROM active_model))
+          )
           AND ($2::smallint IS NULL OR category_id = $2)
           AND peer_pct_3m IS NOT NULL
           AND shp_3m IS NOT NULL;

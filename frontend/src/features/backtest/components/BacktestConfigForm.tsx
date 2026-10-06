@@ -24,7 +24,7 @@ export const BacktestConfigForm: React.FC<BacktestConfigFormProps> = ({
     <Card className="p-5 border-hairline bg-paper rounded-3xl">
       <h2 className="text-sm font-semibold text-ink">Walk-Forward Simulation Parameters</h2>
       <p className="text-xs text-mid-gray mt-0.5">
-        Execution at NAV(t + 1) with friction: 0.005% stamp duty, 0.1% STT, exit load, and CGT
+        Execution at NAV(t + 1) with friction: 0.005% stamp duty, 0.001% STT, exit load, and CGT
       </p>
 
       <form onSubmit={handleSubmit} className="mt-4 flex flex-wrap items-center gap-4">
