@@ -26,6 +26,14 @@ import httpx
 from questmf_quant.returns import validate_canonical_scheme
 
 from app.config import settings
+from workers.amfi_classify import (
+    NON_EQUITY,
+    classify_plan_option,
+    classify_section_header,
+    ensure_categories,
+    reconcile_categories,
+    reconcile_share_classes,
+)
 
 logger = logging.getLogger("ingestion_worker")
 logging.basicConfig(level=logging.INFO)
@@ -35,24 +43,8 @@ MFAPI_BASE_URL = "https://api.mfapi.in/mf"
 
 RAW_STORAGE_DIR = Path(__file__).resolve().parent.parent / "var" / "data" / "raw"
 
-# Exhaustive SEBI Equity Category Mapping
-CATEGORY_CODE_MAP: dict[str, tuple[str, int, str]] = {
-    "Small Cap": ("EQ_SMALL_CAP", 1, "Small Cap Fund"),
-    "Mid Cap": ("EQ_MID_CAP", 2, "Mid Cap Fund"),
-    "Large Cap": ("EQ_LARGE_CAP", 3, "Large Cap Fund"),
-    "Flexi Cap": ("EQ_FLEXI_CAP", 4, "Flexi Cap Fund"),
-    "ELSS": ("EQ_ELSS", 5, "ELSS (Tax Saving)"),
-    "Multi Cap": ("EQ_MULTI_CAP", 6, "Multi Cap Fund"),
-    "Large & Mid Cap": ("EQ_LARGE_MID_CAP", 7, "Large & Mid Cap Fund"),
-    "Focused": ("EQ_FOCUSED", 8, "Focused Fund"),
-    "Dividend Yield": ("EQ_DIVIDEND_YIELD", 9, "Dividend Yield Fund"),
-    "Value": ("EQ_VALUE", 10, "Value Fund"),
-    "Contra": ("EQ_CONTRA", 11, "Contra Fund"),
-    "Sectoral": ("EQ_SECTORAL_THEMATIC", 12, "Sectoral / Thematic Fund"),
-    "Thematic": ("EQ_SECTORAL_THEMATIC", 12, "Sectoral / Thematic Fund"),
-    "Index Fund": ("EQ_INDEX", 13, "Index Fund"),
-    "ETF": ("EQ_ETF", 14, "Equity ETF"),
-}
+# Canonical series with fewer stored NAV points than this get an MFAPI backfill (1Y).
+MIN_HISTORY_POINTS = 252
 
 
 class AsyncRateLimiter:
@@ -127,29 +119,20 @@ def parse_amfi_feed(raw_text: str) -> tuple[list[AmfiParsedScheme], int]:
     rejected_count = 0
 
     current_amc = "Unknown AMC"
-    current_category_label = "Flexi Cap Fund"
-    current_category_code = "EQ_FLEXI_CAP"
-    current_category_id = 4
+    # Lines before the first section header are never assumed to be equity.
+    current_category_code, current_category_id, current_category_label = NON_EQUITY
 
     for line in lines:
         line = line.strip()
         if not line:
             continue
 
-        # Header check (e.g. Open Ended Schemes (Equity Scheme - Small Cap Fund))
-        if line.startswith("Open Ended Schemes") or line.startswith("Close Ended Schemes"):
-            matched = False
-            for cat_key, (code, cid, label) in CATEGORY_CODE_MAP.items():
-                if cat_key.lower() in line.lower():
-                    current_category_label = label
-                    current_category_code = code
-                    current_category_id = cid
-                    matched = True
-                    break
-            if not matched and "equity" in line.lower():
-                current_category_label = "Flexi Cap Fund"
-                current_category_code = "EQ_FLEXI_CAP"
-                current_category_id = 4
+        # Section header, e.g. "Open Ended Schemes(Equity Scheme - Small Cap Fund)".
+        # Every header resets the category (non-equity sections must not inherit equity).
+        if line.startswith(("Open Ended Schemes", "Close Ended Schemes", "Interval Fund")):
+            current_category_code, current_category_id, current_category_label = (
+                classify_section_header(line)
+            )
             continue
 
         # AMC name line (does not contain semicolons)
@@ -167,9 +150,7 @@ def parse_amfi_feed(raw_text: str) -> tuple[list[AmfiParsedScheme], int]:
         else:
             code_str, isin1, isin2, name, nav_str, date_str = parts[:6]
             plan_str = "Direct Plan" if "direct" in name.lower() else "Regular Plan"
-            option_str = (
-                "IDCW" if "idcw" in name.lower() or "dividend" in name.lower() else "Growth"
-            )
+            option_str = name.lower().replace("dividend yield", "")
 
         try:
             scheme_code = int(code_str)
@@ -182,15 +163,9 @@ def parse_amfi_feed(raw_text: str) -> tuple[list[AmfiParsedScheme], int]:
             rejected_count += 1
             continue
 
-        name_lower = f"{name} {plan_str} {option_str}".lower()
-        plan = "DIRECT" if "direct" in name_lower else "REGULAR"
-
-        if "idcw" in name_lower or "dividend" in name_lower:
-            option = "IDCW"
-        elif "bonus" in name_lower:
-            option = "BONUS"
-        else:
-            option = "GROWTH"
+        # Share class from AMFI's Plan/Option columns, never from the scheme name
+        # (a "Dividend Yield Fund" is a Growth option of a dividend-yield strategy).
+        plan, option = classify_plan_option(plan_str, option_str)
 
         # Rule Q7 & Test L: Canonical series = Direct-Growth only.
         is_canonical = False
@@ -395,18 +370,8 @@ async def ingest_amfi_and_historical(
             )
             ingest_id = log_row["ingest_id"]
 
-        # 3. Ensure categories exist in ref.categories across all SEBI categories
-        for _cat_key, (cat_code, cat_id, cat_label) in CATEGORY_CODE_MAP.items():
-            await conn.execute(
-                """
-                INSERT INTO ref.categories (category_id, code, label, asset_class)
-                VALUES ($1, $2, $3, 'EQUITY')
-                ON CONFLICT (category_id) DO NOTHING;
-                """,
-                cat_id,
-                cat_code,
-                cat_label,
-            )
+        # 3. Ensure categories exist (equity categories + NON_EQUITY marker)
+        await ensure_categories(conn)
 
         # 4. Upsert AMCs
         amc_names = {s.amc_name for s in schemes if s.amc_name}
@@ -421,6 +386,11 @@ async def ingest_amfi_and_historical(
 
         amc_rows = await conn.fetch("SELECT amc_id, name FROM ref.amcs;")
         amc_map = {r["name"]: r["amc_id"] for r in amc_rows}
+
+        # 4b. Self-heal earlier share-class misclassification against today's AMFI labels
+        # BEFORE upserts and the canonical de-duplication below, so a corrected IDCW row can
+        # never win the "one canonical per portfolio" tie-break (Rule Q7).
+        await reconcile_share_classes(conn, schemes)
 
         # 5. Filter canonical schemes in equity categories
         canonical_equity = [
@@ -557,6 +527,30 @@ async def ingest_amfi_and_historical(
             FROM ranked_canonical r
             WHERE s.scheme_code = r.scheme_code AND r.rn > 1;
         """)
+
+        # 6b. Correct open category rows to the AMFI section (debt/hybrid -> NON_EQUITY).
+        await reconcile_categories(conn, schemes)
+
+        # 6c. Canonical series without usable history (e.g. a newly corrected Direct-Growth
+        # code) get a one-off MFAPI backfill even on delta-only runs.
+        if not schemes_for_deep_history:
+            counts = await conn.fetch(
+                """
+                SELECT s.scheme_code, COUNT(n.nav_date) AS pts
+                FROM ref.schemes s
+                LEFT JOIN market.nav_history n ON n.scheme_code = s.scheme_code
+                WHERE s.scheme_code = ANY($1::int[]) AND s.is_canonical = true
+                GROUP BY s.scheme_code;
+                """,
+                [s.scheme_code for s in canonical_equity],
+            )
+            thin = {r["scheme_code"] for r in counts if r["pts"] < MIN_HISTORY_POINTS}
+            schemes_for_deep_history = [s for s in canonical_equity if s.scheme_code in thin]
+            logger.info(
+                "Gap backfill: %d canonical schemes with < %d NAV points.",
+                len(schemes_for_deep_history),
+                MIN_HISTORY_POINTS,
+            )
 
         # 7. Parallel Multi-Year Historical Fetch via MFAPI
         sem = asyncio.Semaphore(concurrency)
