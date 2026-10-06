@@ -28,21 +28,22 @@ async def create_backtest_run(
     # Fetch historical NAVs for in-scope canonical equity schemes with deduplication
     nav_rows = await conn.fetch(
         """
-        WITH scheme_stats AS (
-            SELECT scheme_code, MAX(nav_date) AS last_nav_date, COUNT(*) AS nav_points
-            FROM market.nav_history
-            GROUP BY scheme_code
-        ),
-        canonical_schemes AS (
+        WITH canonical_schemes AS (
             -- Rule Q7: one series per portfolio. A portfolio can carry several
-            -- is_canonical rows (e.g. a segregated side-pocket); take the live,
-            -- longest Direct-Growth series, matching select_canonical_scheme().
+            -- is_canonical rows (e.g. a segregated side-pocket); take the live
+            -- Direct-Growth series. The latest date comes from the (scheme_code,
+            -- nav_date) primary key, so no full-table aggregate on the request path.
             SELECT DISTINCT ON (s.portfolio_id) s.scheme_code, s.portfolio_id
             FROM ref.schemes s
-            JOIN scheme_stats st ON st.scheme_code = s.scheme_code
+            CROSS JOIN LATERAL (
+                SELECT MAX(n.nav_date) AS last_nav_date
+                FROM market.nav_history n
+                WHERE n.scheme_code = s.scheme_code
+            ) st
             WHERE s.is_canonical = true AND s.status = 'ACTIVE'
               AND upper(s.plan) = 'DIRECT' AND upper(s.option) = 'GROWTH'
-            ORDER BY s.portfolio_id, st.last_nav_date DESC, st.nav_points DESC, s.scheme_code ASC
+              AND st.last_nav_date IS NOT NULL
+            ORDER BY s.portfolio_id, st.last_nav_date DESC, s.scheme_code ASC
         )
         SELECT cs.portfolio_id, h.nav_date, h.nav
         FROM market.nav_history h
