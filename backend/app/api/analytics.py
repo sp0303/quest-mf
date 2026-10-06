@@ -67,6 +67,9 @@ async def get_fund_summary(
             composite, confidence, quadrant, flags, investable
         FROM scoring.screener_snapshot
         WHERE portfolio_id = $1
+          AND model_version = (
+              SELECT model_version FROM scoring.model_versions WHERE is_default = true LIMIT 1
+          )
         ORDER BY as_of_date DESC
         LIMIT 1;
         """,

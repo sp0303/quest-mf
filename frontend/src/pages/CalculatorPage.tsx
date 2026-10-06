@@ -44,7 +44,7 @@ export const CalculatorPage: React.FC = () => {
     <div className="space-y-6 max-w-4xl mx-auto">
       <SEO
         title="Mutual Fund Net Return & Capital Gains Tax Calculator (Budget 2024) | quest-mf"
-        description="Simulate post-friction mutual fund returns with Stamp Duty (0.005%), Exit Load, STT (0.1%), and post-Budget 2024 LTCG (12.5%) & STCG (20%) tax rates. A Sharat Patnayakuni's product."
+        description="Simulate post-friction mutual fund returns with Stamp Duty (0.005%), Exit Load, STT (0.001%), and post-Budget 2024 LTCG (12.5%) & STCG (20%) tax rates. A Sharat Patnayakuni's product."
         keywords="mutual fund calculator, net return calculator, capital gains tax calculator, mutual fund tax India, LTCG tax mutual funds, STCG tax, exit load, stamp duty, post-tax returns, SIP calculator"
         canonicalPath="/calculator"
       />

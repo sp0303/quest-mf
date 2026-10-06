@@ -33,7 +33,8 @@ export const FundOverviewTab: React.FC<FundOverviewTabProps> = ({ profile, summa
         <Card className="p-4 bg-paper border-hairline rounded-3xl">
           <div className="text-xs text-mid-gray">Expense Ratio (TER)</div>
           <div className="text-base font-semibold mt-1 text-ink">
-            {profile?.ter_pct != null ? `${(profile.ter_pct * 100).toFixed(2)}%` : summary.ter != null ? `${(summary.ter * 100).toFixed(2)}%` : "—"}
+            {/* AMFI Direct-plan TER from the screener snapshot (fraction). */}
+            {summary.ter != null ? `${(summary.ter * 100).toFixed(2)}%` : "—"}
           </div>
         </Card>
         <Card className="p-4 bg-paper border-hairline rounded-3xl">

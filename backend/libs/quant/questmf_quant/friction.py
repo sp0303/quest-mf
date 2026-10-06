@@ -41,8 +41,13 @@ def compute_exit_load(proceeds: float, days_held: int, rate: float, exit_load_da
     return 0.0
 
 
-def compute_stt_equity(gross_proceeds: float, rate: float = 0.001) -> float:
-    """Securities Transaction Tax (STT) on redemption of equity funds (0.1% or 0.001)."""
+# Spec v2 §18: STT on redemption of equity-oriented fund units is 0.001% (not 0.1%,
+# which is the delivery-equity-share rate).
+STT_EQUITY_FUND_REDEMPTION = 0.00001
+
+
+def compute_stt_equity(gross_proceeds: float, rate: float = STT_EQUITY_FUND_REDEMPTION) -> float:
+    """Securities Transaction Tax (STT) on redemption of equity fund units (0.001%)."""
     return gross_proceeds * rate
 
 
@@ -82,7 +87,7 @@ def calculate_net_return(
     stcg_rate: float = 0.20,
     ltcg_rate: float = 0.125,
     stamp_duty_rate: float = 0.00005,
-    stt_rate: float = 0.001,
+    stt_rate: float = STT_EQUITY_FUND_REDEMPTION,
 ) -> FrictionBreakdown:
     """Calculate comprehensive net return after friction and taxes.
 

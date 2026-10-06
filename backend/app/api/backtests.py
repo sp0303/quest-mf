@@ -14,7 +14,7 @@ router = APIRouter(prefix="/backtests/v1", tags=["backtests"])
 
 
 class CreateRunRequest(BaseModel):
-    model_version: str = "v1_baseline"
+    model_version: str | None = None  # None -> the default model (scoring.model_versions)
     top_k: int = Field(3, ge=1, le=10)
     rebalance_months: int = Field(3, ge=1, le=12)
     exec_lag_days: int = Field(1, ge=1)
@@ -28,11 +28,21 @@ async def create_backtest_run(
     # Fetch historical NAVs for in-scope canonical equity schemes with deduplication
     nav_rows = await conn.fetch(
         """
-        WITH canonical_schemes AS (
-            SELECT DISTINCT ON (portfolio_id) scheme_code, portfolio_id
-            FROM ref.schemes
-            WHERE is_canonical = true AND status = 'ACTIVE'
-            ORDER BY portfolio_id, scheme_code ASC
+        WITH scheme_stats AS (
+            SELECT scheme_code, MAX(nav_date) AS last_nav_date, COUNT(*) AS nav_points
+            FROM market.nav_history
+            GROUP BY scheme_code
+        ),
+        canonical_schemes AS (
+            -- Rule Q7: one series per portfolio. A portfolio can carry several
+            -- is_canonical rows (e.g. a segregated side-pocket); take the live,
+            -- longest Direct-Growth series, matching select_canonical_scheme().
+            SELECT DISTINCT ON (s.portfolio_id) s.scheme_code, s.portfolio_id
+            FROM ref.schemes s
+            JOIN scheme_stats st ON st.scheme_code = s.scheme_code
+            WHERE s.is_canonical = true AND s.status = 'ACTIVE'
+              AND upper(s.plan) = 'DIRECT' AND upper(s.option) = 'GROWTH'
+            ORDER BY s.portfolio_id, st.last_nav_date DESC, st.nav_points DESC, s.scheme_code ASC
         )
         SELECT cs.portfolio_id, h.nav_date, h.nav
         FROM market.nav_history h
@@ -63,6 +73,8 @@ async def create_backtest_run(
           AND p.display_name NOT ILIKE '%Short Duration%'
           AND p.display_name NOT ILIKE '%Low Duration%'
           AND p.display_name NOT ILIKE '%Floater%'
+          -- Overseas / international funds are out of MVP scope (spec §6.2).
+          AND p.display_name !~* '(\\mUS\\M|international|japan|asian|global|nasdaq|world|emerging|china|europe|feeder)'
         ORDER BY cs.portfolio_id, h.nav_date ASC;
         """
     )
@@ -82,6 +94,11 @@ async def create_backtest_run(
         trading_calendar_set.add(d)
 
     trading_calendar = sorted(trading_calendar_set)
+
+    if req.model_version is None:
+        req.model_version = await conn.fetchval(
+            "SELECT model_version FROM scoring.model_versions WHERE is_default = true LIMIT 1;"
+        )
 
     # Fetch snapshot scores or generate scores as of rebalance dates
     score_rows = await conn.fetch(

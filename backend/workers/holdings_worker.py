@@ -589,10 +589,17 @@ async def ingest_all_amc_disclosures(as_of: date = date(2026, 8, 31)) -> dict[st
             ),
         ]
 
+        from workers.portfolio_resolver import live_portfolio_ids, resolve_live_portfolio_id
+
+        live = await live_portfolio_ids(conn)
         results = {}
-        for label, parser, file_path, pid, filter_name in plans:
+        for label, parser, file_path, registered_pid, filter_name in plans:
             if not file_path.exists():
                 logger.warning("Disclosure file not found for %s at %s", label, file_path)
+                continue
+            pid = await resolve_live_portfolio_id(conn, registered_pid, live)
+            if pid is None:
+                logger.warning("No live portfolio for %s (ID %d); skipping.", label, registered_pid)
                 continue
             logger.info("Ingesting authentic disclosure for %s (PID %d)...", label, pid)
             with open(file_path, "rb") as f:
@@ -614,8 +621,8 @@ async def ingest_all_amc_disclosures(as_of: date = date(2026, 8, 31)) -> dict[st
                 "equities_count": res.equity_count,
             }
 
-        for prof in SAMPLE_FUND_PROFILES:
-            await upsert_fund_profile(conn, prof)
+        # SAMPLE_FUND_PROFILES are illustrative seed values, not fetched data; they must
+        # never be written to production by this real-disclosure job (genuine data only).
 
         logger.info("Ingestion completed for %d portfolios.", len(results))
         return results

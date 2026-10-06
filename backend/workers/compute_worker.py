@@ -12,35 +12,24 @@ import logging
 from datetime import date
 
 import asyncpg
-from questmf_quant.calendar.windows import (
-    find_boundary_nav_date,
-    resolve_calendar_start_date,
+from questmf_quant.composite import (
+    FLAG_INCOMPLETE,
+    FLAG_INVESTABILITY_UNVERIFIED,
+    FLAG_NO_BENCHMARK,
+    FLAG_SHORT_HISTORY,
+    FLAG_SMALL_PEER_GROUP,
+    SPEC16_MODEL,
+    CompositeModel,
+    CompositeResult,
+    model_from_config,
+    score_category,
 )
-from questmf_quant.drawdown import max_drawdown
-from questmf_quant.percentile import mid_rank_percentile, own_history_percentile
-from questmf_quant.returns import (
-    CanonicalCandidate,
-    cagr,
-    select_canonical_scheme,
-    simple_return,
-)
-from questmf_quant.risk import (
-    annualized_downside_deviation,
-    annualized_volatility,
-    beta_and_alpha,
-    information_ratio,
-    sharpe_ratio,
-    sortino_ratio,
-    tracking_error,
-)
-from questmf_quant.scoring import (
-    DEFAULT_BASELINE_MODEL,
-    ModelConfig,
-    assign_quadrant,
-    compute_composite_score,
-)
+from questmf_quant.percentile import peer_percentiles
+from questmf_quant.returns import CanonicalCandidate, select_canonical_scheme
+from questmf_quant.scoring import Confidence, assign_quadrant
 
 from app.config import settings
+from workers.compute_metrics import OBS_3Y, compute_fund_features
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("compute_worker")
@@ -49,7 +38,123 @@ logger = logging.getLogger("compute_worker")
 # date has no current data to score. It must be dropped from the active screener
 # (INSUFFICIENT_HISTORY), never scored off stale values.
 MAX_SNAPSHOT_STALENESS_DAYS = 30
-MAX_WINDOW_STALENESS_DAYS = 7
+
+
+def _load_model(model_row: asyncpg.Record | None) -> CompositeModel:
+    """Build the spec §16 model from the default scoring.model_versions row (Rule Q13)."""
+    if model_row and model_row["config"]:
+        raw = model_row["config"]
+        cfg = json.loads(raw) if isinstance(raw, str) else dict(raw)
+        if cfg.get("components"):
+            return model_from_config(model_row["model_version"], cfg)
+        logger.warning(
+            "Default model %s has no spec §16 'components'; using %s.",
+            model_row["model_version"],
+            SPEC16_MODEL.version,
+        )
+    return SPEC16_MODEL
+
+
+def _summary_payload(f: dict) -> dict:
+    def pct(v: float | None) -> float | None:
+        return round(v * 100, 2) if v is not None else None
+
+    def num(v: float | None) -> float | None:
+        return round(v, 2) if v is not None else None
+
+    return {
+        "volatility_ann": pct(f["vol"]),
+        "downside_dev_ann": pct(f["downside_dev_3y"]),
+        "sharpe_ratio": num(f["sharpe"]),
+        "sortino_ratio": num(f["sortino"]),
+        "max_drawdown": pct(f["mdd_3y"]),
+        "cagr_3y": pct(f["cagr_3y"]),
+        "cagr_5y": pct(f["cagr_5y"]),
+        "observations": f["obs_count"],
+        "alpha_3m": pct(f["alpha_3m"]),
+        "ir_3y": num(f["ir_3y"]),
+        "beta": num(f["beta_1y"]),
+        "tracking_error": pct(f["tracking_error"]),
+        "beat_pct_3m": num(f["beat_pct_3m"]),
+        "beat_pct_1y": num(f["beat_pct_1y"]),
+        "median_active_3m": pct(f["median_active_3m"]),
+    }
+
+
+def _flags(m: dict, res: CompositeResult) -> int:
+    flags = FLAG_INVESTABILITY_UNVERIFIED
+    if res.small_peer_group:
+        flags |= FLAG_SMALL_PEER_GROUP
+    if res.incomplete:
+        flags |= FLAG_INCOMPLETE
+    if m["obs_count"] < OBS_3Y:
+        flags |= FLAG_SHORT_HISTORY
+    if not m["has_bench"] or m["beat_pct_3m"] is None:
+        flags |= FLAG_NO_BENCHMARK
+    return flags
+
+
+async def _upsert_snapshot(
+    conn: asyncpg.Connection,
+    as_of_date: date,
+    model_version: str,
+    cat_id: int,
+    pid: int,
+    m: dict,
+    peer_pct: float | None,
+    res: CompositeResult,
+    min_obs: int,
+) -> None:
+    """Write one screener row. Q12: < min_obs history -> INSUFFICIENT, composite null."""
+    obs = m["obs_count"]
+    if obs < min_obs:
+        composite, conf = None, Confidence.INSUFFICIENT
+    else:
+        composite = res.composite
+        conf = Confidence.OK if obs >= OBS_3Y else Confidence.LOW
+    quadrant = assign_quadrant(peer_pct, m["shp_3m"])
+    s = m["scheme"]
+    await conn.execute(
+        """
+        INSERT INTO scoring.screener_snapshot (
+            as_of_date, model_version, category_id, portfolio_id, fund_name, amc,
+            ret_1m, ret_3m, ret_6m, ret_1y, cagr_3y, shp_3m, peer_pct_3m, alpha_3m,
+            ir_3y, mdd_3y, ter, exit_load_rate, exit_load_days, composite, confidence,
+            quadrant, flags, investable
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+                  NULL, NULL, $18, $19, $20, $21, true)
+        ON CONFLICT (as_of_date, model_version, category_id, portfolio_id) DO UPDATE
+        SET fund_name = EXCLUDED.fund_name, amc = EXCLUDED.amc,
+            ret_1m = EXCLUDED.ret_1m, ret_3m = EXCLUDED.ret_3m, ret_6m = EXCLUDED.ret_6m,
+            ret_1y = EXCLUDED.ret_1y, cagr_3y = EXCLUDED.cagr_3y, shp_3m = EXCLUDED.shp_3m,
+            peer_pct_3m = EXCLUDED.peer_pct_3m, alpha_3m = EXCLUDED.alpha_3m,
+            ir_3y = EXCLUDED.ir_3y, mdd_3y = EXCLUDED.mdd_3y, ter = EXCLUDED.ter,
+            exit_load_rate = NULL, exit_load_days = NULL, composite = EXCLUDED.composite,
+            confidence = EXCLUDED.confidence, quadrant = EXCLUDED.quadrant,
+            flags = EXCLUDED.flags, investable = EXCLUDED.investable;
+        """,
+        as_of_date,
+        model_version,
+        cat_id,
+        pid,
+        s["fund_name"],
+        s["amc_name"],
+        m["ret_1m"],
+        m["ret_3m"],
+        m["ret_6m"],
+        m["ret_1y"],
+        m["cagr_3y"],
+        m["shp_3m"],
+        peer_pct,
+        m["alpha_3m"],
+        m["ir_3y"],
+        m["mdd_3y"],
+        m["ter"],
+        composite,
+        conf,
+        quadrant,
+        _flags(m, res),
+    )
 
 
 async def run_compute_job() -> None:
@@ -110,7 +215,9 @@ async def run_compute_job() -> None:
               AND p.display_name NOT ILIKE '%Ultra Short%'
               AND p.display_name NOT ILIKE '%Short Duration%'
               AND p.display_name NOT ILIKE '%Low Duration%'
-              AND p.display_name NOT ILIKE '%Floater%';
+              AND p.display_name NOT ILIKE '%Floater%'
+              -- Overseas / international funds are out of MVP scope (spec §6.2).
+              AND p.display_name !~* '(\\mUS\\M|international|japan|asian|global|nasdaq|world|emerging|china|europe|feeder)';
             """,
             as_of_date,
         )
@@ -158,316 +265,86 @@ async def run_compute_job() -> None:
         )
         portfolio_bench_map = {r["portfolio_id"]: r["benchmark_id"] for r in bm_mappings}
 
-        # 2c. Load active model configuration from scoring.model_versions (Rule Q13)
+        # 2c. Active model (Rule Q13): components/weights come from scoring.model_versions.
         model_row = await conn.fetchrow(
-            """
-            SELECT model_version, config
-            FROM scoring.model_versions
-            WHERE is_default = true
-            LIMIT 1;
-            """
+            "SELECT model_version, config FROM scoring.model_versions WHERE is_default = true LIMIT 1;"
         )
-        # compute_composite_score needs a ModelConfig, not a raw dict. Build one
-        # from the stored config (Rule Q13), falling back to the baseline model.
-        if model_row and model_row["config"]:
-            raw_config = model_row["config"]
-            cfg_dict = json.loads(raw_config) if isinstance(raw_config, str) else dict(raw_config)
-            active_model_version = model_row["model_version"]
-            active_model_config = ModelConfig(
-                version=active_model_version,
-                weights=cfg_dict.get("weights", DEFAULT_BASELINE_MODEL.weights),
-                min_obs_required=cfg_dict.get(
-                    "min_obs_required", DEFAULT_BASELINE_MODEL.min_obs_required
-                ),
-            )
-        else:
-            active_model_version = DEFAULT_BASELINE_MODEL.version
-            active_model_config = DEFAULT_BASELINE_MODEL
+        model = _load_model(model_row)
+        active_model_version = model.version
+
+        # 2d. Point-in-time TER (Rule Q2): latest Direct-plan TER on or before as_of_date.
+        ter_rows = await conn.fetch(
+            """
+            SELECT DISTINCT ON (scheme_code) scheme_code, ter
+            FROM ref.ter_history
+            WHERE effective_date <= $1
+            ORDER BY scheme_code, effective_date DESC;
+            """,
+            as_of_date,
+        )
+        ter_by_scheme = {r["scheme_code"]: float(r["ter"]) / 100.0 for r in ter_rows}
 
         fund_metrics: dict[int, dict] = {}
         excluded_stale: list[int] = []
 
-        # 3. For each canonical fund, compute rolling returns & risk metrics
+        # 3. Per-fund features (returns, risk, benchmark-relative persistence)
         for s in schemes:
             pid = s["portfolio_id"]
-            code = s["scheme_code"]
-
             nav_rows = await conn.fetch(
-                """
-                SELECT nav_date, nav
-                FROM market.nav_history
-                WHERE scheme_code = $1
-                ORDER BY nav_date ASC;
-                """,
-                code,
+                "SELECT nav_date, nav FROM market.nav_history WHERE scheme_code = $1 "
+                "AND nav_date <= $2 ORDER BY nav_date ASC;",
+                s["scheme_code"],
+                as_of_date,
             )
-
             if len(nav_rows) < 30:
                 continue
-
             nav_by_date = {r["nav_date"]: float(r["nav"]) for r in nav_rows}
-            dates = sorted(nav_by_date.keys())
-            end_date = dates[-1]
-            end_nav = nav_by_date[end_date]
-
             # Rule Q4/Q12: skip funds whose latest NAV is stale as of the run date.
-            if (as_of_date - end_date).days > MAX_SNAPSHOT_STALENESS_DAYS:
+            if (as_of_date - max(nav_by_date)).days > MAX_SNAPSHOT_STALENESS_DAYS:
                 excluded_stale.append(pid)
                 continue
 
-            navs = [nav_by_date[d] for d in dates]
-
-            # Daily returns for volatility and risk
-            daily_returns = [(navs[i] / navs[i - 1]) - 1.0 for i in range(1, len(navs))]
-
-            # Risk metrics
-            vol = annualized_volatility(daily_returns)
-            downside = annualized_downside_deviation(daily_returns)
-            shp = sharpe_ratio(daily_returns, annual_rf=0.065)
-            sortino = sortino_ratio(daily_returns, annual_rf=0.065)
-            mdd, _, _ = max_drawdown(navs)
-
-            # Rule Q3/Q4/Q12: Pure calendar-window returns with EOM clipping and boundary rule
-            def get_cal_return(
-                months: int,
-                _end_d=end_date,
-                _end_n=end_nav,
-                _all_dates=dates,
-                _nbd=nav_by_date,
-            ) -> float | None:
-                target_start = resolve_calendar_start_date(_end_d, months)
-                start_d = find_boundary_nav_date(
-                    target_start, _all_dates, max_staleness_days=MAX_WINDOW_STALENESS_DAYS
-                )
-                if start_d is None:
-                    return None
-                start_n = _nbd[start_d]
-                if months >= 12:
-                    span_days = float((_end_d - start_d).days)
-                    return cagr(start_n, _end_n, days=span_days) if span_days >= 365.0 else None
-                return simple_return(start_n, _end_n)
-
-            r_1m = get_cal_return(1)
-            r_3m = get_cal_return(3)
-            r_6m = get_cal_return(6)
-            r_1y = get_cal_return(12)
-            c_3y = get_cal_return(36)
-
-            # Rule Q1: Trailing 3M rolling distribution for SHP, excluding current t
-            rolling_3m_history: list[float] = []
-            if len(dates) > 65:
-                max_step_back = min(len(dates) - 1, 500)
-                for step in range(10, max_step_back, 10):
-                    hist_end_idx = len(dates) - 1 - step
-                    if hist_end_idx < 0:
-                        break
-                    hist_end_d = dates[hist_end_idx]
-                    hist_target_start = resolve_calendar_start_date(hist_end_d, 3)
-                    hist_start_d = find_boundary_nav_date(
-                        hist_target_start,
-                        dates[: hist_end_idx + 1],
-                        max_staleness_days=MAX_WINDOW_STALENESS_DAYS,
-                    )
-                    if hist_start_d is not None and hist_start_d in nav_by_date:
-                        rolling_3m_history.append(
-                            simple_return(nav_by_date[hist_start_d], nav_by_date[hist_end_d])
-                        )
-
-            shp_3m = (
-                own_history_percentile(r_3m, rolling_3m_history)
-                if (r_3m is not None and len(rolling_3m_history) >= 8)
-                else None
+            bench_series = bench_data.get(portfolio_bench_map.get(pid, 2), {})
+            f = compute_fund_features(
+                nav_by_date, bench_series, ter_by_scheme.get(s["scheme_code"])
             )
+            f["scheme"] = s
+            f["has_bench"] = bool(bench_series)
+            fund_metrics[pid] = f
 
-            # Rule Q5: Real benchmark TRI metrics with identical dates
-            bench_id = portfolio_bench_map.get(pid, 2)  # default to NIFTY 500 TRI (2)
-            bench_series = bench_data.get(bench_id, {})
-
-            aligned_nav = []
-            aligned_bench = []
-            aligned_dates = []
-            for d in dates:
-                if d in bench_series:
-                    aligned_dates.append(d)
-                    aligned_nav.append(nav_by_date[d])
-                    aligned_bench.append(bench_series[d])
-
-            if len(aligned_nav) >= 30:
-                f_rets = [
-                    (aligned_nav[i] / aligned_nav[i - 1]) - 1.0 for i in range(1, len(aligned_nav))
-                ]
-                b_rets = [
-                    (aligned_bench[i] / aligned_bench[i - 1]) - 1.0
-                    for i in range(1, len(aligned_bench))
-                ]
-                beta, alpha = beta_and_alpha(f_rets, b_rets, periods_per_year=252, annual_rf=0.065)
-                te = tracking_error(f_rets, b_rets, periods_per_year=252)
-
-                if len(f_rets) >= 756:
-                    ir_3y = information_ratio(f_rets[-756:], b_rets[-756:], periods_per_year=252)
-                else:
-                    ir_3y = information_ratio(f_rets, b_rets, periods_per_year=252)
-
-                # 3M Alpha: identical start and end dates via calendar engine
-                target_3m_start = resolve_calendar_start_date(end_date, 3)
-                start_3m_d = find_boundary_nav_date(
-                    target_3m_start, aligned_dates, max_staleness_days=MAX_WINDOW_STALENESS_DAYS
-                )
-                if (
-                    start_3m_d is not None
-                    and start_3m_d in bench_series
-                    and end_date in bench_series
-                    and start_3m_d in nav_by_date
-                ):
-                    f_ret_3m = (nav_by_date[end_date] / nav_by_date[start_3m_d]) - 1.0
-                    b_ret_3m = (bench_series[end_date] / bench_series[start_3m_d]) - 1.0
-                    alpha_3m = f_ret_3m - b_ret_3m
-                else:
-                    alpha_3m = None
-            else:
-                beta, _alpha, te, ir_3y, alpha_3m = 1.0, None, None, None, None
-
-            risk_payload = {
-                "volatility_ann": round(vol * 100, 2) if vol is not None else None,
-                "downside_dev_ann": round(downside * 100, 2) if downside is not None else None,
-                "sharpe_ratio": round(shp, 2) if shp is not None else None,
-                "sortino_ratio": round(sortino, 2) if sortino is not None else None,
-                "max_drawdown": round(mdd * 100, 2) if mdd is not None else None,
-                "cagr_3y": round(c_3y * 100, 2) if c_3y is not None else None,
-                "observations": len(daily_returns),
-                "alpha_3m": round(alpha_3m * 100, 2) if alpha_3m is not None else None,
-                "ir_3y": round(ir_3y, 2) if ir_3y is not None else None,
-                "beta": round(beta, 2) if beta is not None else None,
-                "tracking_error": round(te * 100, 2) if te is not None else None,
-            }
-
-            # Upsert into analytics.fund_summary
             await conn.execute(
                 """
                 INSERT INTO analytics.fund_summary (portfolio_id, as_of_date, payload, updated_at)
                 VALUES ($1, $2, $3::jsonb, now())
                 ON CONFLICT (portfolio_id) DO UPDATE
-                SET as_of_date = EXCLUDED.as_of_date,
-                    payload = EXCLUDED.payload,
-                    updated_at = now();
+                SET as_of_date = EXCLUDED.as_of_date, payload = EXCLUDED.payload, updated_at = now();
                 """,
                 pid,
                 as_of_date,
-                json.dumps(risk_payload),
+                json.dumps(_summary_payload(f)),
             )
 
-            fund_metrics[pid] = {
-                "scheme": s,
-                "r_1m": r_1m,
-                "r_3m": r_3m,
-                "r_6m": r_6m,
-                "r_1y": r_1y,
-                "cagr_3y": c_3y,
-                "vol": vol,
-                "mdd": mdd,
-                "shp_3m": shp_3m,
-                "alpha_3m": alpha_3m,
-                "ir_3y": ir_3y,
-                "beta": beta,
-                "obs_count": len(daily_returns),
-            }
-
-        # 4. Peer percentiles per category (Rule Q8: minimum 8 peers or null)
-        category_funds: dict[int, list[int]] = {}
+        # 4. Within-category scoring (spec §16.1, Rule Q8: one row per portfolio_id)
+        by_category: dict[int, list[int]] = {}
         for pid, m in fund_metrics.items():
-            cat_id = m["scheme"]["category_id"]
-            if m["r_3m"] is not None:
-                category_funds.setdefault(cat_id, []).append(pid)
+            by_category.setdefault(m["scheme"]["category_id"], []).append(pid)
 
-        for cat_id, pids in category_funds.items():
-            category_returns = [
-                fund_metrics[p]["r_3m"] for p in pids if fund_metrics[p]["r_3m"] is not None
-            ]
-
-            # Rule Q8: one row per portfolio_id in any peer percentile. Minimum 8 peers, otherwise null.
-            has_min_peers = len(category_returns) >= 8
-
+        for cat_id, pids in by_category.items():
+            peer_pct = peer_percentiles(
+                {p: fund_metrics[p]["ret_3m"] for p in pids}, min_peers=model.min_peers
+            )
+            scored = score_category({p: fund_metrics[p] for p in pids}, model)
             for pid in pids:
-                m = fund_metrics[pid]
-                if has_min_peers and m["r_3m"] is not None:
-                    peer_pct = mid_rank_percentile(m["r_3m"], category_returns)
-                else:
-                    peer_pct = None
-                m["peer_pct_3m"] = peer_pct
-
-                quadrant = (
-                    assign_quadrant(peer_pct, m["shp_3m"])
-                    if (peer_pct is not None and m["shp_3m"] is not None)
-                    else None
-                )
-
-                momentum_score = (
-                    min(100.0, max(0.0, 50.0 + m["r_3m"] * 250.0))
-                    if m["r_3m"] is not None
-                    else None
-                )
-                quality_score = min(100.0, max(0.0, 50.0 + (m["ir_3y"] or 0.0) * 25.0))
-                risk_score = min(100.0, max(0.0, 100.0 + (m["mdd"] or 0.0) * 200.0))
-
-                factor_scores = {
-                    "momentum": momentum_score if momentum_score is not None else 50.0,
-                    "persistence": m["shp_3m"] if m["shp_3m"] is not None else 50.0,
-                    "quality": quality_score,
-                    "risk": risk_score,
-                    "cost": 75.0,
-                }
-                composite, conf = compute_composite_score(
-                    factor_scores, active_model_config, obs_count=m["obs_count"]
-                )
-
-                s = m["scheme"]
-                await conn.execute(
-                    """
-                    INSERT INTO scoring.screener_snapshot (
-                        as_of_date, model_version, category_id, portfolio_id, fund_name, amc,
-                        ret_1m, ret_3m, ret_6m, ret_1y, cagr_3y, shp_3m, peer_pct_3m, alpha_3m,
-                        ir_3y, mdd_3y, ter, exit_load_rate, exit_load_days, composite, confidence, quadrant, flags, investable
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, $6,
-                        $7, $8, $9, $10, $11, $12, $13, $14,
-                        $15, $16, 0.007, 0.01, 365, $17, $18, $19, 0, true
-                    )
-                    ON CONFLICT (as_of_date, model_version, category_id, portfolio_id) DO UPDATE
-                    SET fund_name = EXCLUDED.fund_name,
-                        amc = EXCLUDED.amc,
-                        ret_1m = EXCLUDED.ret_1m,
-                        ret_3m = EXCLUDED.ret_3m,
-                        ret_6m = EXCLUDED.ret_6m,
-                        ret_1y = EXCLUDED.ret_1y,
-                        cagr_3y = EXCLUDED.cagr_3y,
-                        alpha_3m = EXCLUDED.alpha_3m,
-                        ir_3y = EXCLUDED.ir_3y,
-                        mdd_3y = EXCLUDED.mdd_3y,
-                        composite = EXCLUDED.composite,
-                        peer_pct_3m = EXCLUDED.peer_pct_3m,
-                        shp_3m = EXCLUDED.shp_3m,
-                        quadrant = EXCLUDED.quadrant,
-                        confidence = EXCLUDED.confidence;
-                    """,
+                await _upsert_snapshot(
+                    conn,
                     as_of_date,
                     active_model_version,
                     cat_id,
                     pid,
-                    s["fund_name"],
-                    s["amc_name"],
-                    m["r_1m"],
-                    m["r_3m"],
-                    m["r_6m"],
-                    m["r_1y"],
-                    m["cagr_3y"],
-                    m["shp_3m"],
-                    peer_pct,
-                    m["alpha_3m"],
-                    m["ir_3y"],
-                    m["mdd"],
-                    composite,
-                    conf,
-                    quadrant,
+                    fund_metrics[pid],
+                    peer_pct[pid],
+                    scored[pid],
+                    model.min_obs_required,
                 )
 
         # 4b. Rule Q4/Q12: purge stale funds from the active screener and detail views.

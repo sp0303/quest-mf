@@ -9,6 +9,7 @@ Usage:
     python -m workers.amc_holdings_scheduler --amc all
     python -m workers.amc_holdings_scheduler --amc nippon --as-of-date 2026-08-31
     python -m workers.amc_holdings_scheduler --amc hdfc --file path/to/hdfc.xlsx
+    python -m workers.amc_holdings_scheduler --relink   # move holdings onto live portfolio IDs
 """
 
 from __future__ import annotations
@@ -41,6 +42,11 @@ from workers.parsers import (
     QuantParser,
     SBIParser,
     TataParser,
+)
+from workers.portfolio_resolver import (
+    live_portfolio_ids,
+    relink_holdings_to_live,
+    resolve_live_portfolio_id,
 )
 
 logger = logging.getLogger("amc_holdings_scheduler")
@@ -154,7 +160,13 @@ async def run_amc_ingestion(
     parser = registration.parser_factory()
     results: dict[int, Any] = {}
 
-    for pid, scheme_filter in registration.portfolio_schemes.items():
+    live = await live_portfolio_ids(conn)
+    for registered_pid, scheme_filter in registration.portfolio_schemes.items():
+        pid = await resolve_live_portfolio_id(conn, registered_pid, live)
+        if pid is None:
+            logger.warning("No live portfolio for registered ID %d; skipping.", registered_pid)
+            results[registered_pid] = {"status": "SKIPPED", "reason": "No live portfolio match"}
+            continue
         logger.info(
             "Processing %s -> Portfolio ID %d ('%s')", registration.amc_name, pid, scheme_filter
         )
@@ -227,7 +239,18 @@ async def main() -> None:
     parser.add_argument(
         "--dry-run", action="store_true", help="Parse and validate without DB writes"
     )
+    parser.add_argument(
+        "--relink", action="store_true", help="Move holdings onto live portfolio IDs and exit"
+    )
     args = parser.parse_args()
+
+    if args.relink:
+        conn = await asyncpg.connect(settings.pg_dsn)
+        try:
+            logger.info("Relink result: %s", await relink_holdings_to_live(conn))
+        finally:
+            await conn.close()
+        return
 
     default_as_of, default_disclosed = compute_default_dates()
     as_of = date.fromisoformat(args.as_of_date) if args.as_of_date else default_as_of

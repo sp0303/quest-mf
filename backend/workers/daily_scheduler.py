@@ -3,6 +3,7 @@
 Orchestrates the nightly quant data pipeline at 11:30 PM IST (18:00 UTC):
 1. Ingests today's AMFI NAV feed (Rule Q7: Direct-Growth canonical).
 2. Ingests today's NSE Benchmark TRI updates (Rule Q5: TRI only).
+2b. Refreshes Direct-plan TER from AMFI (cost component; non-fatal on failure).
 3. Precomputes all risk metrics, percentiles, and 2x2 screener snapshots (Rule 1).
 
 Usage:
@@ -21,6 +22,7 @@ from typing import Any
 from workers.benchmark_worker import ingest_benchmark_tri_history
 from workers.compute_worker import run_compute_job
 from workers.ingestion_worker import ingest_amfi_and_historical
+from workers.ter_worker import ingest_ter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,6 +67,15 @@ async def run_nightly_pipeline() -> dict[str, Any]:
         results["status"] = "FAILED_AT_BENCHMARK"
         results["error"] = str(e)
         return results
+
+    # Step 2b: Refresh TER (AMFI). A failure keeps the last stored TER (point-in-time),
+    # so it is logged but does not stop scoring.
+    try:
+        results["ter_ingestion"] = await ingest_ter(n_months=2)
+        logger.info("TER ingestion completed: %s", results["ter_ingestion"])
+    except Exception as e:
+        logger.exception("TER ingestion failed (continuing with stored TER): %s", e)
+        results["ter_ingestion"] = {"error": str(e)}
 
     # Step 3: Run Quant Analytics & Scoring Precomputation
     try:
@@ -131,8 +142,10 @@ def main() -> None:
     if args.daemon:
         asyncio.run(run_daemon_loop())
     else:
-        # Default is to run once
-        asyncio.run(run_nightly_pipeline())
+        # Default is to run once; a failed step must fail the systemd unit.
+        result = asyncio.run(run_nightly_pipeline())
+        if result.get("status") != "SUCCESS":
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":
